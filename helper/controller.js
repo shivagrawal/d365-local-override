@@ -5,12 +5,40 @@ import { createRule, interceptionPatterns, isCandidate, isDynamicsUrl, matchesRu
 import { saveProject } from './config.js';
 import { stableRead, formatSize } from './utils.js';
 import { watchBundle } from './watcher.js';
+import { resolveArtifact } from './bundles.js';
 
 export class Controller {
   constructor({ root, port, bundles, config, resourceType = 'pcf' }) {
     Object.assign(this, { root, port, bundles, config, resourceType });
     if (this.config) this.config.enabled = false;
     this.status = { stage: 'idle' };
+  }
+
+  async setArtifact(inputPath) {
+    if (!inputPath || typeof inputPath !== 'string' || !inputPath.trim()) {
+      throw new Error('Select a local bundle, JavaScript, or HTML file.');
+    }
+
+    const { bundles, resourceType } = await resolveArtifact(inputPath.trim());
+
+    await this.disable();
+    this.stopWatcher?.();
+    this.stopWatcher = undefined;
+
+    this.bundles = bundles;
+    this.resourceType = resourceType;
+    this.root = path.dirname(bundles[0]);
+
+    if (this.config &&
+        ((this.config.resourceType || 'pcf') !== resourceType ||
+         !bundles.includes(path.resolve(this.config.bundlePath || '')))) {
+      this.config = null;
+    }
+
+    if (this.config?.bundlePath) this.startWatcher();
+
+    this.status = { stage: 'artifact-selected', at: Date.now(), count: bundles.length };
+    return this.snapshot();
   }
 
   async dynamicsTabs() {
@@ -95,7 +123,8 @@ export class Controller {
         .toLowerCase()
         .replace(/\.(?:js|html?)$/, '');
 
-    const localName = comparableName(this.bundles[0]);
+    const localName = this.bundles.length ? comparableName(this.bundles[0]) : null;
+    if (!localName) return 0;
 
     return [...found.values()].sort((left, right) => {
       const leftName = comparableName(new URL(left.url).pathname);
@@ -107,6 +136,10 @@ export class Controller {
   }
 
   async configure({ tabId, bundlePath, resourceUrl, autoReload = true }) {
+    if (!this.bundles.length) {
+      throw new Error('Select a local bundle, JavaScript, or HTML file first.');
+    }
+
     const resolved = path.resolve(bundlePath);
     if (!this.bundles.includes(resolved)) {
       throw new Error('The selected local file was not discovered by this helper.');
@@ -403,7 +436,8 @@ export class Controller {
       config: this.config,
       status: this.status,
       connected: Boolean(this.client),
-      resourceType: this.resourceType
+      resourceType: this.resourceType,
+      hasArtifact: this.bundles.length > 0
     };
   }
 
