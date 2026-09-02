@@ -15,6 +15,7 @@
 <p id="pathHelp">Paste the folder containing <code>bundle.js</code>.</p>
 <label id="pathLabel" for="bundleFolder">Bundle folder or bundle.js path</label>
 <input id="bundleFolder" class="path-input" type="text" placeholder="C:\\path\\to\\out\\controls\\MyControl">
+<button id="browseStartFolder" class="secondary-button full-width">Browse…</button>
 <button id="startHelper" class="primary-button full-width">Start helper</button>
 <div id="nativeError" class="error hidden"></div>
 <details class="guide">
@@ -29,7 +30,12 @@
 <div class="connection-status">● Helper connected</div>
 <section class="card"><label>Project</label><div id="project" class="value-box"></div>
 <label>Dynamics tab</label><button id="refreshTabs" class="text-button">Refresh</button><select id="tab"></select>
-<label id="localFileLabel">Local bundle</label><select id="bundle"></select></section>
+<label id="localFileLabel">Local bundle</label><select id="bundle"></select>
+<label for="artifactPath">Local bundle / script / HTML</label>
+<input id="artifactPath" class="path-input" type="text">
+<div class="command-row"><button id="browseFolder" class="secondary-button">Browse folder…</button><button id="browseFile" class="secondary-button">Browse file…</button></div>
+<button id="selectArtifact" class="secondary-button full-width">Use this local file</button>
+</section>
 <section class="card"><label id="dynamicsResourceLabel">Dynamics bundle</label><div id="resource" class="value-box muted">Not configured</div><button id="scan" class="secondary-button full-width">Find Dynamics bundle</button><div id="candidates"></div>
 <label for="resourceUrl">Or paste the exact resource URL</label><input id="resourceUrl" class="path-input" type="url">
 <button id="useResourceUrl" class="secondary-button full-width">Use this resource URL</button></section>
