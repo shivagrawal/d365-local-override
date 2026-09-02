@@ -44,7 +44,10 @@ function render(){
   $('scan').textContent=html?'Find HTML web resource':script?'Find JavaScript web resource':'Find Dynamics bundle';
   $('project').textContent=state.projectRoot;
   $('bundle').replaceChildren(...state.bundles.map(v=>option(v,v.replace(`${state.projectRoot}\\`,''))));
+  if(!state.hasArtifact)$('bundle').append(option('','No local file selected yet'));
   if(state.config?.bundlePath)$('bundle').value=state.config.bundlePath;
+  if(state.hasArtifact&&!$('artifactPath').value)$('artifactPath').value=state.bundles[0];
+  $('scan').disabled=!state.hasArtifact;
   $('resource').textContent=state.config?.rule?new URL(state.config.rule.selectedUrl).pathname:'Not configured';
   $('resource').classList.toggle('muted',!state.config?.rule);
   if(!togglePending)$('override').checked=Boolean(state.connected);
@@ -71,24 +74,22 @@ async function refreshStatus(){
 }
 function showNativeError(message=''){ $('nativeError').textContent=message; $('nativeError').classList.toggle('hidden',!message); }
 
-async function sendToNativeHost(type,options){
-  return chrome.runtime.sendMessage({target:'pcf-native-host',type,options});
+async function sendToNativeHost(type,options,extra={}){
+  return chrome.runtime.sendMessage({target:'pcf-native-host',type,options,...extra});
 }
 
 $('startHelper').onclick=async()=>{
   showNativeError();
   const type=$('launchType').value;
   const value=$('bundleFolder').value.trim().replace(/^"|"$/g,'');
-  if(!value){showNativeError('Enter a folder or file path first.');return;}
+  // A path is optional now: the helper can start bare and the artifact is selected afterwards.
+  const options=value?{[type]:value}:{};
   $('startHelper').disabled=true;$('startHelper').textContent='Starting…';
   try{
-    const response=await sendToNativeHost('start',{[type]:value});
+    const response=await sendToNativeHost('start',options);
     if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
-  }catch(e){
-    showNativeError(`${e.message} — see "Manual start" below if this is your first time.`);
-  }finally{
-    $('startHelper').disabled=false;$('startHelper').textContent='Start helper';
-  }
+  }catch(e){showNativeError(`${e.message} — see "Manual start" below if this is your first time.`)}
+  finally{$('startHelper').disabled=false;$('startHelper').textContent='Start helper';}
 };
 
 $('stopHelper').onclick=async()=>{
@@ -100,16 +101,19 @@ $('stopHelper').onclick=async()=>{
 
 chrome.runtime.onMessage.addListener(message=>{
   if(message?.source!=='pcf-native-host')return;
-  if(message.type==='status'&&message.stage==='started'){
-    setTimeout(()=>initialize().catch(()=>{}),500);
+  if(message.type==='picked'){
+    if(message.cancelled)return;
+    $('artifactPath').value=message.path;
+    $('bundleFolder').value=message.path;
+    if(message.applied&&message.snapshot){state=message.snapshot;render();showError();}
+    else if(message.message)showError(message.message);
+    return;
   }
+  if(message.type==='status'&&message.stage==='started')setTimeout(()=>initialize().catch(()=>{}),500);
   if(message.type==='status'&&message.stage==='stopped'){
-    clearInterval(timer);
-    $('online').classList.add('hidden');$('offline').classList.remove('hidden');
+    clearInterval(timer);$('online').classList.add('hidden');$('offline').classList.remove('hidden');
   }
-  if(message.type==='error'){
-    showNativeError(message.message);
-  }
+  if(message.type==='error')showNativeError(message.message);
 });
 
 async function copyCommand(button,command){
@@ -124,6 +128,32 @@ function updateLaunchCommand(){
 $('launchType').onchange=updateLaunchCommand;$('bundleFolder').oninput=updateLaunchCommand;
 $('copy').onclick=e=>copyCommand(e.currentTarget,$('launchCommand').textContent);
 $('refreshTabs').onclick=()=>loadTabs().catch(e=>showError(e.message));
+
+async function browse(mode,targetInputId){
+  const button=targetInputId==='bundleFolder'?$('browseStartFolder'):(mode==='folder'?$('browseFolder'):$('browseFile'));
+  const original=button.textContent;
+  button.disabled=true;button.textContent='Opening…';
+  try{
+    const response=await sendToNativeHost('pick',undefined,{mode});
+    if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
+  }catch(e){
+    const show=targetInputId==='bundleFolder'?showNativeError:showError;
+    show(`${e.message} — paste the path manually instead.`);
+  }finally{button.disabled=false;button.textContent=original;}
+}
+$('browseFolder').onclick=()=>browse('folder','artifactPath');
+$('browseFile').onclick=()=>browse('file','artifactPath');
+$('browseStartFolder').onclick=()=>browse('folder','bundleFolder');
+
+$('selectArtifact').onclick=async()=>{
+  showError();
+  const value=$('artifactPath').value.trim().replace(/^"|"$/g,'');
+  if(!value){showError('Enter or paste a local file or folder path.');return;}
+  $('selectArtifact').disabled=true;
+  try{state=await api('/artifact',{path:value});render();}
+  catch(e){showError(e.message)}
+  finally{$('selectArtifact').disabled=false}
+};
 
 $('scan').onclick=async()=>{
   showError();$('candidates').textContent='Scanning…';
