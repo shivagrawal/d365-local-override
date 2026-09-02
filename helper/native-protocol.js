@@ -1,20 +1,14 @@
 // Chrome native messaging framing: each message is a 4-byte little-endian
-// length prefix followed by that many bytes of UTF-8 JSON.
-// https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging
+// unsigned integer length followed by UTF-8 JSON bytes.
 
-export function encodeMessage(message) {
-  const json = Buffer.from(JSON.stringify(message), 'utf8');
+export function encodeMessage(value) {
+  const body = Buffer.from(JSON.stringify(value), 'utf8');
   const header = Buffer.alloc(4);
-  header.writeUInt32LE(json.length, 0);
-  return Buffer.concat([header, json]);
+  header.writeUInt32LE(body.length, 0);
+  return Buffer.concat([header, body]);
 }
 
-/**
- * Returns a function you feed raw stdin chunks into. Calls `onMessage(value, error)`
- * once per complete frame: `value` set on success, `error` set (value undefined) if a
- * frame's body isn't valid JSON. Buffers partial frames across chunks.
- */
-export function createDecoder(onMessage) {
+export function createDecoder(onMessage, onError = () => {}) {
   let buffer = Buffer.alloc(0);
 
   return chunk => {
@@ -22,6 +16,12 @@ export function createDecoder(onMessage) {
 
     while (buffer.length >= 4) {
       const length = buffer.readUInt32LE(0);
+      if (length > 1024 * 1024) {
+        onError(new Error('Native message exceeds 1 MB.'));
+        buffer = Buffer.alloc(0);
+        return;
+      }
+
       if (buffer.length < 4 + length) return;
 
       const body = buffer.subarray(4, 4 + length);
@@ -30,7 +30,7 @@ export function createDecoder(onMessage) {
       try {
         onMessage(JSON.parse(body.toString('utf8')));
       } catch (error) {
-        onMessage(undefined, error);
+        onError(error);
       }
     }
   };
