@@ -34,7 +34,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   try {
-    ensurePort().postMessage({ type: message.type, options: message.options });
+    ensurePort().postMessage({
+      type: message.type,
+      options: message.options,
+      mode: message.mode,
+      title: message.title
+    });
     sendResponse({ ok: true });
   } catch (error) {
     port = null;
