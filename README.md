@@ -1,52 +1,52 @@
-# D365 Local Override
+# PCF Local Override v1.2.8
 
-Local development helper for Dynamics 365 / Power Platform web resources and PCF bundles.
+Local Dynamics development tool for PCF bundles and Model-Driven App JavaScript and HTML web resources. A localhost Node helper owns file watching and Chrome CDP interception; a Manifest V3 extension provides the UI.
 
-## Baseline
+## Install helper
 
-This repository starts from the stable `pcf-local-override` v1.2.8 baseline.
+Requires Node.js 22 or later.
 
-The stable package is preserved as the reference point while development proceeds toward:
+```bat
+install-helper.cmd
+```
 
-1. Microsoft Edge support.
-2. A zero-terminal developer workflow through the browser extension: select/paste a local JS/HTML/PCF bundle path, discover the matching Dynamics resource, and enable the override.
-3. Local Dynamics 365 plugin debugging by attaching Visual Studio to the appropriate process, with the goal of testing plugin code locally without repeated server deployment/registration.
+Manual installation:
 
-## Current stable workflow
+```bash
+npm install -g .
+```
 
-The v1.2.8 helper launches a local override helper and connects to a development Chrome instance. It supports PCF bundles and existing Model-Driven App JavaScript/HTML resources.
+## Load extension
 
-## Development principles
+Chrome/Edge Extensions → Developer mode → Load unpacked, then select only:
 
-- Do not destabilize the known-good v1.2.8 behavior.
-- Build new browser support and UX incrementally behind the stable baseline.
-- Keep Chrome behavior working while Edge support is added.
-- Prefer a single-click developer workflow over terminal commands.
-- Keep local override, browser integration, and future plugin-debugging capabilities modular.
+```text
+C:\path\to\pcf-local-override\extension
+```
 
-## Roadmap
+## Daily workflow
 
-### Phase 1 — Edge
-- Detect/use Microsoft Edge with remote debugging.
-- Reuse the existing CDP interception architecture where compatible.
-- Keep Chrome as a supported option.
-- Add automated tests for browser selection and launch configuration.
+```bash
+npm run start:watch
+pcf-local-override launch --bundle "C:\path\to\out\controls\MyControl"
+```
 
-### Phase 2 — Extension-first UX
-- Browser extension popup/dashboard.
-- Local file/folder selection or path entry.
-- Automatic Dynamics resource discovery/matching.
-- One-click enable/disable override.
-- Clear connection and override status.
-- Preserve the existing helper as the compatibility backend during migration.
+For Model-Driven JavaScript:
 
-### Phase 3 — Plugin local debugging
-- Define the local plugin execution/debug architecture.
-- Integrate Visual Studio attach/debug workflow.
-- Intercept or redirect eligible plugin execution where technically possible.
-- Avoid requiring plugin registration/deployment for every development iteration.
-- Add explicit safeguards so production/real tenant execution cannot be unintentionally redirected.
+```bash
+pcf-local-override launch --script "C:\path\to\account-form.js"
+```
 
-## Versioning
+For Model-Driven HTML:
 
-The v1.2.8 baseline is considered stable. Future work should use feature branches/tags and should not silently replace the stable behavior.
+```bash
+pcf-local-override launch --html "C:\path\to\web-resource.html"
+```
+
+The extension never reads local files and never owns CDP. The helper binds only to `127.0.0.1:32145`.
+
+## Tests
+
+```bash
+npm test
+```
