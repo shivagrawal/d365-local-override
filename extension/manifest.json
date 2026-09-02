@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "PCF Local Override",
+  "version": "1.2.8",
+  "description": "Local overrides for PCF bundles and Model-Driven JavaScript and HTML web resources.",
+  "permissions": ["activeTab", "storage", "tabs"],
+  "host_permissions": ["http://127.0.0.1:32145/*", "https://*.dynamics.com/*"],
+  "action": { "default_title": "PCF Local Override", "default_popup": "popup.html" },
+  "content_scripts": [{ "matches": ["https://*.dynamics.com/*"], "js": ["indicator.js"], "run_at": "document_idle" }]
+}
