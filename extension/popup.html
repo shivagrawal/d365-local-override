@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PCF Local Override</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<main>
+<header class="app-header"><div class="brand-icon">PCF</div><div><h1>Local Override</h1><p>Develop PCF controls and form scripts locally</p></div><span class="version">v1.2.8</span></header>
+<div id="offline" class="notice offline hidden"><div class="notice-title">● Helper is offline</div>
+<label for="launchType">Override type</label>
+<select id="launchType"><option value="bundle">PCF bundle</option><option value="script">Model-Driven JavaScript</option><option value="html">Model-Driven HTML</option></select>
+<p id="pathHelp">Paste the folder containing <code>bundle.js</code>.</p>
+<label id="pathLabel" for="bundleFolder">Bundle folder or bundle.js path</label>
+<input id="bundleFolder" class="path-input" type="text" placeholder="C:\\path\\to\\out\\controls\\MyControl">
+<div class="command-row"><code id="launchCommand">pcf-local-override launch --bundle "C:\\path\\to\\bundle-folder"</code><button id="copy">Copy</button></div>
+</div>
+<div id="online" class="hidden">
+<div class="connection-status">● Helper connected</div>
+<section class="card"><label>Project</label><div id="project" class="value-box"></div>
+<label>Dynamics tab</label><button id="refreshTabs" class="text-button">Refresh</button><select id="tab"></select>
+<label id="localFileLabel">Local bundle</label><select id="bundle"></select></section>
+<section class="card"><label id="dynamicsResourceLabel">Dynamics bundle</label><div id="resource" class="value-box muted">Not configured</div><button id="scan" class="secondary-button full-width">Find Dynamics bundle</button><div id="candidates"></div>
+<label for="resourceUrl">Or paste the exact resource URL</label><input id="resourceUrl" class="path-input" type="url">
+<button id="useResourceUrl" class="secondary-button full-width">Use this resource URL</button></section>
+<section class="card settings-card"><label class="switch-row">Enable override <input id="override" type="checkbox"></label><label class="switch-row">Auto reload <input id="autoReload" type="checkbox"></label></section>
+<button id="reload" class="primary-button full-width">Reload Dynamics now</button>
+<div id="active" class="active hidden">Local override active</div>
+<details class="diagnostics-card"><summary>Diagnostics</summary><div id="diagnostics">Idle</div></details>
+</div>
+<details class="guide"><summary>How to run — step by step</summary><ol>
+<li><strong>Install helper</strong><p>Run <code>npm install -g .</code></p></li>
+<li><strong>Start PCF watcher</strong><p>Run <code>npm run start:watch</code></p></li>
+<li><strong>Launch development browser</strong><p>Run <code>pcf-local-override launch --bundle "C:\\path\\to\\bundle-folder"</code></p></li>
+<li><strong>Open Dynamics</strong><p>Use the development Chrome window.</p></li>
+<li><strong>Configure popup</strong><p>Select the Dynamics tab and local bundle, scan and select the resource.</p></li>
+<li><strong>Enable override</strong><p>Turn on Enable override.</p></li>
+</ol></details>
+<div id="error" class="error hidden"></div>
+</main>
+<script type="module" src="popup.js"></script>
+</body>
+</html>
