@@ -69,6 +69,49 @@ async function refreshStatus(){
     $('override').disabled=togglePending;$('active').classList.toggle('hidden',!state.connected);
   }catch{clearInterval(timer);$('offline').classList.remove('hidden');$('online').classList.add('hidden');}
 }
+function showNativeError(message=''){ $('nativeError').textContent=message; $('nativeError').classList.toggle('hidden',!message); }
+
+async function sendToNativeHost(type,options){
+  return chrome.runtime.sendMessage({target:'pcf-native-host',type,options});
+}
+
+$('startHelper').onclick=async()=>{
+  showNativeError();
+  const type=$('launchType').value;
+  const value=$('bundleFolder').value.trim().replace(/^"|"$/g,'');
+  if(!value){showNativeError('Enter a folder or file path first.');return;}
+  $('startHelper').disabled=true;$('startHelper').textContent='Starting…';
+  try{
+    const response=await sendToNativeHost('start',{[type]:value});
+    if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
+  }catch(e){
+    showNativeError(`${e.message} — see "Manual start" below if this is your first time.`);
+  }finally{
+    $('startHelper').disabled=false;$('startHelper').textContent='Start helper';
+  }
+};
+
+$('stopHelper').onclick=async()=>{
+  try{
+    const response=await sendToNativeHost('stop');
+    if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
+  }catch(e){showError(e.message)}
+};
+
+chrome.runtime.onMessage.addListener(message=>{
+  if(message?.source!=='pcf-native-host')return;
+  if(message.type==='status'&&message.stage==='started'){
+    setTimeout(()=>initialize().catch(()=>{}),500);
+  }
+  if(message.type==='status'&&message.stage==='stopped'){
+    clearInterval(timer);
+    $('online').classList.add('hidden');$('offline').classList.remove('hidden');
+  }
+  if(message.type==='error'){
+    showNativeError(message.message);
+  }
+});
+
 async function copyCommand(button,command){
   await navigator.clipboard.writeText(command);
   const original=button.textContent;button.textContent='Copied!';setTimeout(()=>button.textContent=original,1200);
