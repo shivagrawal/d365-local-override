@@ -1,0 +1,9 @@
+{
+  "name": "pcf-local-override",
+  "version": "1.2.8",
+  "private": true,
+  "type": "module",
+  "bin": { "pcf-local-override": "./helper/bin.js" },
+  "scripts": { "test": "node --test" },
+  "engines": { "node": ">=22" }
+}
