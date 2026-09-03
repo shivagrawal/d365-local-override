@@ -51,7 +51,8 @@ button{font:inherit;cursor:pointer}
 button:disabled{opacity:.5;cursor:default}
 
 .switch-row{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--text);text-transform:none;font-weight:500}
-.switch-row input{width:auto}
+.switch-row input{width:auto;accent-color:var(--amber)}
+#override{accent-color:var(--amber);width:16px;height:16px}
 
 .hidden{display:none!important}
 

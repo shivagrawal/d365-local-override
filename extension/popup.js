@@ -17,7 +17,17 @@ async function api(path,data){
 function showError(message=''){ $('error').textContent=message; $('error').classList.toggle('hidden',!message); }
 function option(value,text){const o=document.createElement('option');o.value=value;o.textContent=text;return o;}
 function resourceLabel(path){ try{return new URL(path).pathname;}catch{return path;} }
-function localLabel(p,root){ return p.startsWith(root)?p.slice(root.length).replace(/^[\\/]/,''):p.split(/[\\/]/).pop(); }
+function localLabel(p,root){
+  if(root&&p.startsWith(root))return p.slice(root.length).replace(/^[\\/]/,'');
+  const segments=p.split(/[\\/]/);
+  const filename=segments.pop();
+  // bundle.js / bundle.min.js is the same name for every PCF control - show
+  // the containing control folder instead, or the caller sees indistinguishable entries.
+  if(/^bundle(\.min)?\.js$/i.test(filename)&&segments.length){
+    return `${segments.pop()} / ${filename}`;
+  }
+  return filename;
+}
 
 async function loadTabs(){
   const tabs=await api('/tabs');
@@ -156,6 +166,7 @@ $('startHelper').onclick=async()=>{
 };
 
 $('stopHelper').onclick=async()=>{
+  showError();
   try{
     const response=await sendToNativeHost('stop');
     if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
@@ -217,7 +228,7 @@ $('addOverrideToggle').onclick=()=>{
   const opening=$('addPanel').classList.contains('hidden');
   $('addPanel').classList.toggle('hidden');
   $('addOverrideToggle').textContent=opening?'Cancel':'+ Add override';
-  if(!opening){showError();$('candidates').replaceChildren();}
+  if(!opening){showError();$('candidates').replaceChildren();allCandidates=[];$('candidateFilter').classList.add('hidden');$('candidateFilter').value='';}
 };
 
 async function browse(mode,targetInputId){
@@ -247,10 +258,15 @@ $('selectArtifact').onclick=async()=>{
   try{
     state=await api('/artifact',{path:value});
     render();
+    chrome.storage?.local?.set({lastArtifactPath:value});
     if(state.hasArtifact)detectWatch(state.bundles[0]);
   }catch(e){showError(e.message)}
   finally{$('selectArtifact').disabled=false}
 };
+
+chrome.storage?.local?.get(['lastArtifactPath'],r=>{
+  if(r.lastArtifactPath&&!$('artifactPath').value)$('artifactPath').value=r.lastArtifactPath;
+});
 
 // --- PCF build watch (npm run start:watch, automated instead of a manual terminal) ---
 function stripAnsi(text){
@@ -314,18 +330,30 @@ $('autoStartWatch').onchange=()=>{
   chrome.storage?.local?.set({autoStartWatch:$('autoStartWatch').checked});
 };
 
+let allCandidates=[];
+
+function renderCandidates(filterText=''){
+  const needle=filterText.trim().toLowerCase();
+  const filtered=needle?allCandidates.filter(c=>c.url.toLowerCase().includes(needle)):allCandidates;
+  $('candidates').replaceChildren();
+  for(const c of filtered){
+    const b=document.createElement('button');
+    b.textContent=`${c.source}: ${new URL(c.url).pathname}`;
+    b.onclick=()=>addOverride(c.url);
+    $('candidates').append(b);
+  }
+  if(!filtered.length)$('candidates').textContent=allCandidates.length?'No matches for that filter.':'No candidates found.';
+}
+
+$('candidateFilter').oninput=()=>renderCandidates($('candidateFilter').value);
+
 $('scan').onclick=async()=>{
-  showError();$('candidates').textContent='Scanning…';
+  showError();$('candidates').textContent='Scanning…';$('candidateFilter').classList.add('hidden');
   try{
-    const candidates=await api('/scan',{tabId:$('tab').value,resourceType:state.resourceType});
-    $('candidates').replaceChildren();
-    for(const c of candidates){
-      const b=document.createElement('button');
-      b.textContent=`${c.source}: ${new URL(c.url).pathname}`;
-      b.onclick=()=>addOverride(c.url);
-      $('candidates').append(b);
-    }
-    if(!candidates.length)$('candidates').textContent='No candidates found.';
+    allCandidates=await api('/scan',{tabId:$('tab').value,resourceType:state.resourceType});
+    $('candidateFilter').value='';
+    $('candidateFilter').classList.toggle('hidden',allCandidates.length<6);
+    renderCandidates();
   }catch(e){showError(e.message)}
 };
 
@@ -340,12 +368,21 @@ $('useResourceUrl').onclick=()=>{
 };
 
 async function addOverride(resourceUrl){
+  const bundlePath=$('bundle').value;
+  if(!bundlePath){
+    showError('No local file is selected - click "Detect local file(s)" first.');
+    console.error('[PatchPilot] addOverride aborted: #bundle has no value',{bundleOptions:[...$('bundle').options].map(o=>o.value)});
+    return;
+  }
   try{
-    state=await api('/rules',{tabId:$('tab').value,bundlePath:$('bundle').value,resourceUrl});
-    $('resourceUrl').value='';$('candidates').replaceChildren();
+    state=await api('/rules',{tabId:$('tab').value,bundlePath,resourceUrl});
+    $('resourceUrl').value='';$('candidates').replaceChildren();allCandidates=[];
     $('addPanel').classList.add('hidden');$('addOverrideToggle').textContent='+ Add override';
     render();
-  }catch(e){showError(e.message)}
+  }catch(e){
+    console.error('[PatchPilot] addOverride failed',{tabId:$('tab').value,bundlePath,resourceUrl,error:e});
+    showError(e.message);
+  }
 }
 
 $('override').onchange=async e=>{

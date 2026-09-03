@@ -3,11 +3,11 @@ import { spawn, execFile } from 'node:child_process';
 const MAX_LOG_LINES = 200;
 
 function pgrepChildren(pid) {
- return new Promise(resolve => {
- execFile('pgrep', ['-P', String(pid)], (error, stdout) => {
- resolve(error ? [] : stdout.trim().split('\n').filter(Boolean).map(Number));
- });
- });
+  return new Promise(resolve => {
+    execFile('pgrep', ['-P', String(pid)], (error, stdout) => {
+      resolve(error ? [] : stdout.trim().split('\n').filter(Boolean).map(Number));
+    });
+  });
 }
 
 /**
@@ -23,13 +23,33 @@ function pgrepChildren(pid) {
  * to kill the whole tree reliably.
  */
 async function killTree(pid) {
- const children = await pgrepChildren(pid);
- await Promise.all(children.map(killTree));
- try {
- process.kill(pid, 'SIGKILL');
- } catch {
- // already gone
- }
+  const children = await pgrepChildren(pid);
+  await Promise.all(children.map(killTree));
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    // already gone
+  }
+}
+
+/**
+ * Fallback for Windows: taskkill /T walks the process tree as of the moment
+ * it's called. If the intermediate wrapper (cmd.exe/npm.cmd) has already
+ * exited by then - which happens, since npm hands off to the actual build
+ * tool and exits - the long-lived process underneath (webpack-dev-server,
+ * Browsersync) can already be orphaned from that tree and invisible to a
+ * PID-rooted kill. Finding by command-line content instead of tree position
+ * catches what the tree-walk missed. Locally-installed npm tools are always
+ * invoked with an absolute path into the project's own node_modules, so the
+ * project root reliably appears in the real command line.
+ */
+function killByCommandLineMatch(marker, execFileFn = execFile) {
+  return new Promise(resolve => {
+    if (!marker) return resolve();
+    const escaped = marker.replace(/'/g, "''"); // PowerShell single-quoted strings: only ' needs escaping
+    const script = `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${escaped}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
+    execFileFn('powershell', ['-NoProfile', '-Command', script], () => resolve());
+  });
 }
 
 /**
@@ -39,97 +59,102 @@ async function killTree(pid) {
  * process writing the same bundle.js would race our own file watcher.
  */
 export class PcfWatcher {
- constructor({ command = 'npm', spawnFn = spawn } = {}) {
- this.command = command;
- this.spawnFn = spawnFn;
- this.child = null;
- this.log = [];
- this.startedAt = null;
- this.exit = null; // { code, signal, at } once the process has exited
- }
+  constructor({ command = 'npm', spawnFn = spawn, execFileFn = execFile } = {}) {
+    this.command = command;
+    this.spawnFn = spawnFn;
+    this.execFileFn = execFileFn;
+    this.child = null;
+    this.log = [];
+    this.startedAt = null;
+    this.exit = null; // { code, signal, at } once the process has exited
+  }
 
- get running() {
- return Boolean(this.child) && this.exit === null;
- }
+  get running() {
+    return Boolean(this.child) && this.exit === null;
+  }
 
- snapshot() {
- return {
- running: this.running,
- projectRoot: this.projectRoot ?? null,
- scriptName: this.scriptName ?? null,
- startedAt: this.startedAt,
- exit: this.exit,
- log: this.log.join('')
- };
- }
+  snapshot() {
+    return {
+      running: this.running,
+      projectRoot: this.projectRoot ?? null,
+      scriptName: this.scriptName ?? null,
+      startedAt: this.startedAt,
+      exit: this.exit,
+      log: this.log.join('')
+    };
+  }
 
- _appendLog(chunk) {
- this.log.push(chunk.toString());
- // Bound memory: keep roughly the last MAX_LOG_LINES lines' worth of chunks.
- if (this.log.length > MAX_LOG_LINES) this.log = this.log.slice(-MAX_LOG_LINES);
- }
+  _appendLog(chunk) {
+    this.log.push(chunk.toString());
+    // Bound memory: keep roughly the last MAX_LOG_LINES lines' worth of chunks.
+    if (this.log.length > MAX_LOG_LINES) this.log = this.log.slice(-MAX_LOG_LINES);
+  }
 
- start(projectRoot, scriptName) {
- if (this.running) {
- return { started: false, reason: 'already-running', snapshot: this.snapshot() };
- }
- if (!projectRoot || !scriptName) {
- throw new Error('A project root and script name are required to start the watch.');
- }
+  start(projectRoot, scriptName) {
+    if (this.running) {
+      return { started: false, reason: 'already-running', snapshot: this.snapshot() };
+    }
+    if (!projectRoot || !scriptName) {
+      throw new Error('A project root and script name are required to start the watch.');
+    }
 
- this.projectRoot = projectRoot;
- this.scriptName = scriptName;
- this.log = [];
- this.exit = null;
- this.startedAt = Date.now();
+    this.projectRoot = projectRoot;
+    this.scriptName = scriptName;
+    this.log = [];
+    this.exit = null;
+    this.startedAt = Date.now();
 
- // Windows note: shell:true does NOT quote the `command` argument itself -
- // only the args array - so a command path containing a space (e.g. an
- // install under "Program Files") silently fails to spawn. It also trips
- // Node's own security warning about unescaped shell arguments. Spawning
- // cmd.exe directly (a real .exe, no shell needed to invoke it) with the
- // actual command as one array element sidesteps both: Node's spawn
- // quotes each array element correctly when shell is NOT used, and cmd's
- // own /c handles resolving and running npm.cmd exactly as shell:true did.
- if (process.platform === 'win32') {
- this.child = this.spawnFn('cmd.exe', ['/d', '/s', '/c', this.command, 'run', scriptName], {
- cwd: projectRoot
- });
- } else {
- this.child = this.spawnFn(this.command, ['run', scriptName], { cwd: projectRoot });
- }
+    // Windows note: shell:true does NOT quote the `command` argument itself -
+    // only the args array - so a command path containing a space (e.g. an
+    // install under "Program Files") silently fails to spawn. It also trips
+    // Node's own security warning about unescaped shell arguments. Spawning
+    // cmd.exe directly (a real .exe, no shell needed to invoke it) with the
+    // actual command as one array element sidesteps both: Node's spawn
+    // quotes each array element correctly when shell is NOT used, and cmd's
+    // own /c handles resolving and running npm.cmd exactly as shell:true did.
+    if (process.platform === 'win32') {
+      this.child = this.spawnFn('cmd.exe', ['/d', '/s', '/c', this.command, 'run', scriptName], {
+        cwd: projectRoot
+      });
+    } else {
+      this.child = this.spawnFn(this.command, ['run', scriptName], { cwd: projectRoot });
+    }
 
- this.child.stdout?.on('data', chunk => this._appendLog(chunk));
- this.child.stderr?.on('data', chunk => this._appendLog(chunk));
+    this.child.stdout?.on('data', chunk => this._appendLog(chunk));
+    this.child.stderr?.on('data', chunk => this._appendLog(chunk));
 
- this.child.on('exit', (code, signal) => {
- this.exit = { code, signal, at: Date.now() };
- this.child = null;
- });
+    this.child.on('exit', (code, signal) => {
+      this.exit = { code, signal, at: Date.now() };
+      this.child = null;
+    });
 
- this.child.on('error', error => {
- this._appendLog(`\n[failed to start: ${error.message}]\n`);
- this.exit = { code: null, signal: null, at: Date.now(), error: error.message };
- this.child = null;
- });
+    this.child.on('error', error => {
+      this._appendLog(`\n[failed to start: ${error.message}]\n`);
+      this.exit = { code: null, signal: null, at: Date.now(), error: error.message };
+      this.child = null;
+    });
 
- return { started: true, snapshot: this.snapshot() };
- }
+    return { started: true, snapshot: this.snapshot() };
+  }
 
- async stop() {
- if (!this.running) return { stopped: false, reason: 'not-running' };
- const pid = this.child.pid;
+  async stop() {
+    if (!this.running) return { stopped: false, reason: 'not-running' };
+    const pid = this.child.pid;
+    const projectRoot = this.projectRoot;
 
- if (process.platform === 'win32') {
- // /T kills the whole process tree; without it only the top-level
- // npm.cmd process would die, leaving the actual build process running.
- await new Promise(resolve => {
- execFile('taskkill', ['/pid', String(pid), '/T', '/F'], () => resolve());
- });
- } else {
- await killTree(pid);
- }
+    if (process.platform === 'win32') {
+      // /T kills the whole process tree; without it only the top-level
+      // npm.cmd process would die, leaving the actual build process running.
+      await new Promise(resolve => {
+        this.execFileFn('taskkill', ['/pid', String(pid), '/T', '/F'], () => resolve());
+      });
+      // Belt and suspenders: catch any descendant that escaped the PID tree
+      // (npm/cmd.exe already exited before we could reach it via taskkill).
+      await killByCommandLineMatch(projectRoot, this.execFileFn);
+    } else {
+      await killTree(pid);
+    }
 
- return { stopped: true };
- }
+    return { stopped: true };
+  }
 }
