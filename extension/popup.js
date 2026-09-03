@@ -99,15 +99,29 @@ function renderRulesList(){
   }));
 }
 
-function render(){
-  const script=state.resourceType==='script',html=state.resourceType==='html';
+function clientDeriveType(filePath){
+  if(!filePath)return null;
+  const ext=filePath.split('.').pop().toLowerCase();
+  if(ext==='html'||ext==='htm')return'html';
+  if(ext==='js')return/^bundle(\.min)?\.js$/i.test(filePath.split(/[\\/]/).pop())?'pcf':'script';
+  return null;
+}
+
+function updateTypeLabels(){
+  const type=clientDeriveType($('bundle').value)||state.resourceType;
+  const script=type==='script',html=type==='html';
   $('localFileLabel').textContent=html?'Local HTML file':script?'Local JavaScript file':'Local bundle';
   $('dynamicsResourceLabel').textContent=html?'Dynamics HTML resource':script?'Dynamics JavaScript resource':'Dynamics bundle';
   $('scan').textContent=html?'Find HTML web resource':script?'Find JavaScript web resource':'Find Dynamics bundle';
+}
+$('bundle').onchange=updateTypeLabels;
+
+function render(){
   $('bundle').replaceChildren(...state.bundles.map(v=>option(v,localLabel(v,state.projectRoot))));
   if(!state.hasArtifact)$('bundle').append(option('','No local file selected yet'));
   if(state.hasArtifact&&!$('artifactPath').value)$('artifactPath').value=state.bundles[0];
   $('scan').disabled=!state.hasArtifact;
+  updateTypeLabels();
   if(!togglePending)$('override').checked=Boolean(state.connected);
   $('override').disabled=togglePending;
 
@@ -120,7 +134,9 @@ function render(){
     :'Helper connected';
 
   renderStatus(state.status);
-  chrome.tabs.query({active:true,currentWindow:true}).then(([tab])=>tab?.id&&chrome.tabs.sendMessage(tab.id,{active:state.connected,resourceType:state.resourceType}).catch(()=>{}));
+  const activeTypes=new Set((state.rules||[]).map(r=>r.resourceType));
+  const badgeType=activeTypes.size===1?[...activeTypes][0]:undefined;
+  chrome.tabs.query({active:true,currentWindow:true}).then(([tab])=>tab?.id&&chrome.tabs.sendMessage(tab.id,{active:state.connected,resourceType:badgeType}).catch(()=>{}));
 }
 
 async function initialize(){
@@ -350,7 +366,7 @@ $('candidateFilter').oninput=()=>renderCandidates($('candidateFilter').value);
 $('scan').onclick=async()=>{
   showError();$('candidates').textContent='Scanning…';$('candidateFilter').classList.add('hidden');
   try{
-    allCandidates=await api('/scan',{tabId:$('tab').value,resourceType:state.resourceType});
+    allCandidates=await api('/scan',{tabId:$('tab').value,bundlePath:$('bundle').value});
     $('candidateFilter').value='';
     $('candidateFilter').classList.toggle('hidden',allCandidates.length<6);
     renderCandidates();

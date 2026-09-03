@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { CdpClient, targets } from './cdp.js';
-import { resolveArtifact } from './bundles.js';
+import { resolveArtifact, deriveResourceType } from './bundles.js';
 import { createRule, interceptionPatterns, isCandidate, isDynamicsUrl, matchesRule } from '../shared/matcher.js';
 import { saveProject } from './config.js';
 import { stableRead, formatSize } from './utils.js';
@@ -53,7 +53,8 @@ export class Controller {
     return target;
   }
 
-  async scan(tabId, resourceType = this.resourceType, timeoutMs = 5000) {
+  async scan(tabId, bundlePath, timeoutMs = 5000) {
+    const resourceType = bundlePath ? deriveResourceType(bundlePath) : this.resourceType;
     const target = await this.target(tabId);
     const host = new URL(target.url).hostname;
     const client = await new CdpClient(target.webSocketDebuggerUrl).connect();
@@ -123,7 +124,11 @@ export class Controller {
         .toLowerCase()
         .replace(/\.(?:js|html?)$/, '');
 
-    const localName = this.bundles.length ? comparableName(this.bundles[0]) : null;
+    // Sort by similarity to the SPECIFIC file being scanned for, not just
+    // whichever bundle happened to be discovered first - those can differ
+    // whenever more than one file was found in the selected folder.
+    const localName = bundlePath ? comparableName(bundlePath)
+      : this.bundles.length ? comparableName(this.bundles[0]) : null;
 
     return [...found.values()].sort((left, right) => {
       if (!localName) return 0;
@@ -150,17 +155,23 @@ export class Controller {
       throw new Error('The selected local file was not discovered by this helper.');
     }
 
+    // Derive from the actual file being added, not this.resourceType (which
+    // only reflects whatever was LAST staged via setArtifact and goes stale
+    // the moment a different kind of file is selected for this specific add).
+    const resourceType = deriveResourceType(resolved) || this.resourceType;
+
     await stableRead(resolved);
 
     const target = await this.target(tabId);
     const targetHost = new URL(target.url).hostname;
 
-    if (!isCandidate(resourceUrl, targetHost, this.resourceType)) {
+    if (!isCandidate(resourceUrl, targetHost, resourceType)) {
       throw new Error('Resource URL must be a matching Dynamics web resource or PCF bundle from the selected tab.');
     }
 
     if (this.rules.length && this.rules.some(existing => existing.tabId !== tabId)) {
-      throw new Error('All overrides in one session must target the same Dynamics tab. Remove existing overrides first to switch tabs.');
+      const lockedHost = this.rules[0].dynamicsHostname;
+      throw new Error(`All overrides in one session must target the same Dynamics tab (currently ${lockedHost}). Remove existing overrides first to switch tabs.`);
     }
 
     if (this.rules.some(existing => existing.resourceUrl === resourceUrl)) {
@@ -172,8 +183,8 @@ export class Controller {
       tabId,
       bundlePath: resolved,
       resourceUrl,
-      rule: createRule(resourceUrl, this.resourceType),
-      resourceType: this.resourceType,
+      rule: createRule(resourceUrl, resourceType),
+      resourceType,
       dynamicsHostname: targetHost,
       autoReload
     };

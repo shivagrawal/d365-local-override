@@ -713,7 +713,7 @@ test('addRule adds alongside existing rules rather than replacing them', async (
 });
 
 test('addRule rejects a duplicate Dynamics resource', async () => {
-  const { file } = await tempBundle();
+  const { file } = await tempBundle('x', 'account-form.js');
   const { server, port } = await targetsServer([
     { id: 'a', type: 'page', title: 'D365', url: 'https://org.crm4.dynamics.com/main.aspx',
       webSocketDebuggerUrl: 'ws://127.0.0.1/devtools/page/a' }
@@ -737,7 +737,7 @@ test('addRule rejects a duplicate Dynamics resource', async () => {
 });
 
 test('addRule rejects a rule targeting a different tab than existing rules', async () => {
-  const { file } = await tempBundle();
+  const { file } = await tempBundle('x', 'account-form.js');
   const { server, port } = await targetsServer([
     { id: 'a', type: 'page', title: 'D365 A', url: 'https://org.crm4.dynamics.com/main.aspx',
       webSocketDebuggerUrl: 'ws://127.0.0.1/devtools/page/a' },
@@ -792,7 +792,7 @@ test('addRule while enabled triggers a disable+enable cycle to refresh the live 
 });
 
 test('addRule while disabled does not touch enable/disable at all', async () => {
-  const { file } = await tempBundle();
+  const { file } = await tempBundle('x', 'account-form.js');
   const { server, port } = await targetsServer([
     { id: 'a', type: 'page', title: 'D365', url: 'https://org.crm4.dynamics.com/main.aspx',
       webSocketDebuggerUrl: 'ws://127.0.0.1/devtools/page/a' }
@@ -837,6 +837,63 @@ test('removeRule rejects an unknown rule id', async () => {
   const controller = new Controller({ root, port: 9222, bundles: [], rules: [ruleEntry({ id: 'r1' })] });
   await assert.rejects(() => controller.removeRule('nope'), /No such override rule/);
 });
+
+test('regression: addRule derives type from the actual file, not whatever was last staged via setArtifact', async () => {
+  // Reproduces the reported bug exactly: stage a PCF folder (setting the
+  // controller-wide resourceType to 'pcf'), then try to add a plain
+  // JavaScript override. The old code validated and stamped the new rule
+  // using the STALE staged type, rejecting a perfectly valid JS override
+  // because it didn't look like a PCF bundle pattern.
+  const { file: jsFile } = await tempBundle('x', 'account-form.js');
+  const { server, port } = await targetsServer([
+    { id: 'a', type: 'page', title: 'D365', url: 'https://org.crm4.dynamics.com/main.aspx',
+      webSocketDebuggerUrl: 'ws://127.0.0.1/devtools/page/a' }
+  ]);
+
+  try {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));
+    // resourceType: 'pcf' simulates a PCF folder having been staged last,
+    // exactly as it would be after a real setArtifact() call for a PCF project.
+    const controller = new Controller({ root, port, bundles: [jsFile], resourceType: 'pcf' });
+
+    const snapshot = await controller.addRule({
+      tabId: 'a', bundlePath: jsFile,
+      resourceUrl: 'https://org.crm4.dynamics.com/webresources/cc_account_form'
+    });
+
+    assert.equal(snapshot.rules[0].resourceType, 'script', 'must derive script from the actual file, not inherit the stale pcf staging');
+
+    controller.stopWatcher?.();
+  } finally {
+    server.close();
+  }
+});
+
+test('regression: mixed-type rules can be active simultaneously (one PCF, one script)', async () => {
+  const { file: pcfFile } = await tempBundle('a', 'bundle.js');
+  const { file: jsFile } = await tempBundle('b', 'account-form.js');
+  const { server, port } = await targetsServer([
+    { id: 'a', type: 'page', title: 'D365', url: 'https://org.crm4.dynamics.com/main.aspx',
+      webSocketDebuggerUrl: 'ws://127.0.0.1/devtools/page/a' }
+  ]);
+
+  try {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));
+    const controller = new Controller({ root, port, bundles: [pcfFile], resourceType: 'pcf' });
+
+    await controller.addRule({ tabId: 'a', bundlePath: pcfFile, resourceUrl: 'https://org.crm4.dynamics.com/webresources/cc_Control/bundle.js' });
+    controller.bundles = [jsFile]; // simulates staging a different file for the second add
+    const snapshot = await controller.addRule({ tabId: 'a', bundlePath: jsFile, resourceUrl: 'https://org.crm4.dynamics.com/webresources/cc_account_form' });
+
+    assert.equal(snapshot.rules.length, 2);
+    assert.deepEqual(snapshot.rules.map(r => r.resourceType).sort(), ['pcf', 'script']);
+
+    controller.stopWatcher?.();
+  } finally {
+    server.close();
+  }
+});
+
 
 test('removeRule while enabled disables fully if it was the last rule', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));

@@ -42,7 +42,7 @@ export function startServer(controller) {
 
       if (req.method === 'GET' && url.pathname === '/status') result = controller.snapshot();
       else if (req.method === 'GET' && url.pathname === '/tabs') result = await controller.dynamicsTabs();
-      else if (req.method === 'POST' && url.pathname === '/scan') result = await controller.scan(data.tabId, data.resourceType);
+      else if (req.method === 'POST' && url.pathname === '/scan') result = await controller.scan(data.tabId, data.bundlePath);
       else if (req.method === 'POST' && url.pathname === '/configure') result = await controller.configure(data);
       else if (req.method === 'POST' && url.pathname === '/rules') result = await controller.addRule(data);
       else if (req.method === 'POST' && url.pathname === '/remove-rule') result = await controller.removeRule(data.ruleId);

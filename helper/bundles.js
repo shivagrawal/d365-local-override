@@ -2,14 +2,47 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const isBundleName = name => /^bundle(?:\.min)?\.js$/i.test(name);
+const SKIP_DIRS = ['node_modules', '.git', '.vs', 'obj', 'bin'];
+
+/** Derive resource type from a specific file path. The one source of truth
+ * for "what kind of override is this" - callers should derive from the
+ * actual selected file, not carry a separate type value that can go stale
+ * relative to what's actually selected. */
+export function deriveResourceType(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === '.html' || extension === '.htm') return 'html';
+  if (extension === '.js') return isBundleName(path.basename(filePath)) ? 'pcf' : 'script';
+  return null;
+}
 
 async function walk(dir, depth, found) {
   if (depth < 0) return;
   for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-    if (['node_modules', '.git'].includes(entry.name)) continue;
+    if (SKIP_DIRS.includes(entry.name)) continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) await walk(full, depth - 1, found);
     else if (isBundleName(entry.name)) found.push(full);
+  }
+}
+
+/** Recursively collect every .js/.html file under a folder - the fallback
+ * when a folder contains plain web resources rather than a PCF build. */
+async function collectWebResources(dir, depth, found) {
+  if (depth < 0) return;
+  let entries;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (SKIP_DIRS.includes(entry.name)) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await collectWebResources(full, depth - 1, found);
+    } else if (deriveResourceType(entry.name)) {
+      found.push(full);
+    }
   }
 }
 
@@ -26,7 +59,7 @@ async function findBuildFolders(root, depth, found) {
   }
 
   for (const entry of entries) {
-    if (!entry.isDirectory() || ['node_modules', '.git'].includes(entry.name)) continue;
+    if (!entry.isDirectory() || SKIP_DIRS.includes(entry.name)) continue;
     const full = path.join(root, entry.name);
     if (BUILD_FOLDER_NAMES.includes(entry.name)) {
       found.add(full);
@@ -49,6 +82,16 @@ export async function discoverBundles(root) {
       if (error.code !== 'ENOENT') throw error;
     });
   }
+
+  // Fallback: some build tooling doesn't use out/dist/build at all. If the
+  // targeted search found nothing, fall back to a full (bounded) recursive
+  // search from the root itself, regardless of intermediate folder names.
+  if (!found.length) {
+    await walk(root, 8, found).catch(error => {
+      if (error.code !== 'ENOENT') throw error;
+    });
+  }
+
   return [...new Set(found)];
 }
 
@@ -70,11 +113,15 @@ export const resolveScript = input => resolveTypedFile(input, '.js', '--script',
 export const resolveHtml = input => resolveTypedFile(input, '.html', '--html', 'HTML');
 
 /**
- * Resolve an arbitrary user-chosen path (file or folder) and derive its resource type.
- * Used when the artifact is selected at runtime from the extension rather than declared
- * as a CLI flag up front. Returns { bundles, resourceType }.
+ * Resolve an arbitrary user-chosen path (file or folder). Returns
+ * { bundles, resourceType }. `resourceType` is only a UI hint for what to
+ * show first - callers that add an override rule must derive the real type
+ * per-file via deriveResourceType(bundlePath), since a folder can contain a
+ * mix of PCF bundles, plain scripts, and HTML web resources together.
  *
- * Folder  -> PCF bundle discovery (direct child bundle.js, else out/dist/build scan)
+ * Folder -> PCF bundles at any depth, if any exist; otherwise every
+ *           .js/.html file found anywhere under the folder (a plain web
+ *           resource folder is just as valid a selection as a PCF build).
  * *.html  -> html
  * bundle(.min).js -> pcf
  * other *.js -> script
@@ -90,36 +137,25 @@ export async function resolveArtifact(input) {
   }
 
   if (stat.isDirectory()) {
-    const direct = (await fs.readdir(resolved, { withFileTypes: true }))
-      .filter(entry => entry.isFile() && isBundleName(entry.name))
-      .map(entry => path.join(resolved, entry.name));
+    const bundles = await discoverBundles(resolved);
+    if (bundles.length) return { bundles, resourceType: 'pcf' };
 
-    if (direct.length > 1) {
-      throw new Error(`Multiple bundles found in ${resolved}. Select the exact bundle file.`);
+    const webResources = [];
+    await collectWebResources(resolved, 8, webResources);
+    if (webResources.length) {
+      return { bundles: webResources, resourceType: deriveResourceType(webResources[0]) };
     }
-    if (direct.length === 1) return { bundles: direct, resourceType: 'pcf' };
 
-    const discovered = await discoverBundles(resolved);
-    if (!discovered.length) {
-      throw new Error(`No bundle.js found directly inside, or under out/dist/build of:\n${resolved}`);
-    }
-    return { bundles: discovered, resourceType: 'pcf' };
+    throw new Error(`No bundle.js, .js, or .html file found anywhere under:\n${resolved}`);
   }
 
   if (!stat.isFile()) throw new Error(`Path must be a file or folder:\n${resolved}`);
 
-  const extension = path.extname(resolved).toLowerCase();
-  if (extension === '.html' || extension === '.htm') {
-    return { bundles: [resolved], resourceType: 'html' };
+  const resourceType = deriveResourceType(resolved);
+  if (!resourceType) {
+    throw new Error(`Unsupported file type "${path.extname(resolved) || 'none'}". Select a .js, .html, or PCF bundle folder:\n${resolved}`);
   }
-  if (extension === '.js') {
-    return {
-      bundles: [resolved],
-      resourceType: isBundleName(path.basename(resolved)) ? 'pcf' : 'script'
-    };
-  }
-
-  throw new Error(`Unsupported file type "${extension || 'none'}". Select a .js, .html, or PCF bundle folder:\n${resolved}`);
+  return { bundles: [resolved], resourceType };
 }
 
 export async function resolveBundle(input) {

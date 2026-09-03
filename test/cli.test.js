@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { parseLaunchArgs } from '../helper/cli.js';
-import { discoverBundles, resolveArtifact, resolveBundle, resolveHtml, resolveScript } from '../helper/bundles.js';
+import { deriveResourceType, discoverBundles, resolveArtifact, resolveBundle, resolveHtml, resolveScript } from '../helper/bundles.js';
 
 test('resolveArtifact derives type from the selected path', async () => {
   const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-artifact-'));
@@ -83,7 +83,7 @@ test('resolveArtifact reports unusable selections clearly', async () => {
   const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-artifact-'));
 
   await assert.rejects(() => resolveArtifact(path.join(folder, 'nope')), /does not exist/);
-  await assert.rejects(() => resolveArtifact(folder), /No bundle\.js found/);
+  await assert.rejects(() => resolveArtifact(folder), /No bundle\.js, \.js, or \.html file found/);
 
   const text = path.join(folder, 'notes.txt');
   await fs.writeFile(text, 'x');
@@ -91,6 +91,78 @@ test('resolveArtifact reports unusable selections clearly', async () => {
 
   await fs.rm(folder, { recursive: true, force: true });
 });
+
+test('regression: a folder of plain JS/HTML web resources (no PCF bundle at all) is a valid selection', async () => {
+  // Reproduces the reported bug: selecting a Wesco.QOE.Webresource\JavaScript
+  // style folder - real web resource files, no PCF build output anywhere -
+  // used to throw "No bundle.js found" with zero fallback.
+  const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-webresources-'));
+  await fs.writeFile(path.join(folder, 'wesco_cancelorder.js'), 'function a(){}');
+  await fs.writeFile(path.join(folder, 'wesco_charges.js'), 'function b(){}');
+  await fs.writeFile(path.join(folder, 'dialog.html'), '<h1>x</h1>');
+  await fs.writeFile(path.join(folder, 'notes.txt'), 'ignored - not a web resource');
+
+  const result = await resolveArtifact(folder);
+
+  assert.equal(result.bundles.length, 3, 'all three real web resources must be found, the .txt file ignored');
+  assert.ok(result.bundles.some(b => b.endsWith('wesco_cancelorder.js')));
+  assert.ok(result.bundles.some(b => b.endsWith('wesco_charges.js')));
+  assert.ok(result.bundles.some(b => b.endsWith('dialog.html')));
+
+  await fs.rm(folder, { recursive: true, force: true });
+});
+
+test('regression: a folder of web resources nested in subfolders is still found', async () => {
+  const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-webresources-'));
+  const nested = path.join(folder, 'JavaScript', 'Orders');
+  await fs.mkdir(nested, { recursive: true });
+  await fs.writeFile(path.join(nested, 'wesco_cancelorder.js'), 'function a(){}');
+
+  const result = await resolveArtifact(folder);
+  assert.equal(result.bundles.length, 1);
+  assert.ok(result.bundles[0].endsWith('wesco_cancelorder.js'));
+
+  await fs.rm(folder, { recursive: true, force: true });
+});
+
+test('regression: PCF bundles are preferred over plain web resources when both exist under the same folder', async () => {
+  const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-mixed-'));
+  await fs.mkdir(path.join(folder, 'out', 'controls', 'MyControl'), { recursive: true });
+  await fs.writeFile(path.join(folder, 'out', 'controls', 'MyControl', 'bundle.js'), 'pcf');
+  await fs.writeFile(path.join(folder, 'unrelated_script.js'), 'not pcf');
+
+  const result = await resolveArtifact(folder);
+  assert.equal(result.resourceType, 'pcf');
+  assert.equal(result.bundles.length, 1);
+  assert.ok(result.bundles[0].endsWith('bundle.js'));
+
+  await fs.rm(folder, { recursive: true, force: true });
+});
+
+test('regression: bundle.js is found even under a build folder with a non-standard name', async () => {
+  // Reproduces the reported bug: discoverBundles only looked for folders
+  // literally named out/dist/build. A control built into any other folder
+  // name (a custom build script, an unusual generator config, etc.) used to
+  // be invisible even though the file genuinely exists nearby.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-custom-build-'));
+  const nested = path.join(root, 'ControlProject', 'compiled-output', 'controls', 'MyControl');
+  await fs.mkdir(nested, { recursive: true });
+  const bundle = path.join(nested, 'bundle.js');
+  await fs.writeFile(bundle, 'b');
+
+  assert.deepEqual(await discoverBundles(root), [bundle]);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test('deriveResourceType classifies files correctly', () => {
+  assert.equal(deriveResourceType(path.join('proj', 'out', 'controls', 'X', 'bundle.js')), 'pcf');
+  assert.equal(deriveResourceType(path.join('proj', 'out', 'controls', 'X', 'bundle.min.js')), 'pcf');
+  assert.equal(deriveResourceType(path.join('proj', 'wesco_cancelorder.js')), 'script');
+  assert.equal(deriveResourceType(path.join('proj', 'dialog.html')), 'html');
+  assert.equal(deriveResourceType(path.join('proj', 'dialog.htm')), 'html');
+  assert.equal(deriveResourceType(path.join('proj', 'notes.txt')), null);
+});
+
 
 test('parses launch options', () => {
   assert.deepEqual(parseLaunchArgs(['--root', 'C:\\project', '--bundle', 'C:\\project\\bundle.js']), {
