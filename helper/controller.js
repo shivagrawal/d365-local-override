@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { CdpClient, targets } from './cdp.js';
 import { resolveArtifact } from './bundles.js';
 import { createRule, interceptionPatterns, isCandidate, isDynamicsUrl, matchesRule } from '../shared/matcher.js';
@@ -8,10 +8,17 @@ import { stableRead, formatSize } from './utils.js';
 import { watchBundle } from './watcher.js';
 
 export class Controller {
-  constructor({ root, port, bundles, config, resourceType = 'pcf', reloadSettleMs = 1200 }) {
-    Object.assign(this, { root, port, bundles, config, resourceType, reloadSettleMs });
-    if (this.config) this.config.enabled = false;
+  constructor({ root, port, bundles, rules, resourceType = 'pcf', reloadSettleMs = 1200 }) {
+    Object.assign(this, { root, port, bundles, resourceType, reloadSettleMs });
+    this.rules = Array.isArray(rules) ? rules : [];
+    // Never auto-attach on startup, regardless of what was persisted - the
+    // developer must explicitly re-enable each session.
+    this.enabled = false;
     this.status = { stage: 'idle' };
+  }
+
+  async persist() {
+    await saveProject(this.root, { rules: this.rules });
   }
 
   async dynamicsTabs() {
@@ -21,10 +28,10 @@ export class Controller {
   }
 
   /**
-   * Select the local artifact after startup, so the helper can be launched with
-   * nothing configured and the developer can pick a bundle from the extension.
-   * Replaces the discovered bundle list and derived resource type, and drops any
-   * previously configured rule that no longer applies to the new artifact.
+   * Select the local artifact to stage for the NEXT override rule to be
+   * added. Deliberately has no effect on already-active rules, the running
+   * CDP session, or file watchers - browsing for one more file to override
+   * must not disturb overrides that are already working.
    */
   async setArtifact(inputPath) {
     if (!inputPath || typeof inputPath !== 'string' || !inputPath.trim()) {
@@ -33,23 +40,8 @@ export class Controller {
 
     const { bundles, resourceType } = await resolveArtifact(inputPath.trim());
 
-    await this.disable();
-    this.stopWatcher?.();
-    this.stopWatcher = undefined;
-
     this.bundles = bundles;
     this.resourceType = resourceType;
-    this.root = path.dirname(bundles[0]);
-
-    // A rule created for a different resource type or a file we no longer serve
-    // must not survive; it would silently intercept the wrong request.
-    if (this.config &&
-        ((this.config.resourceType || 'pcf') !== resourceType ||
-         !bundles.includes(path.resolve(this.config.bundlePath || '')))) {
-      this.config = null;
-    }
-
-    if (this.config?.bundlePath) this.startWatcher();
 
     this.status = { stage: 'artifact-selected', at: Date.now(), count: bundles.length };
     return this.snapshot();
@@ -143,7 +135,12 @@ export class Controller {
     });
   }
 
-  async configure({ tabId, bundlePath, resourceUrl, autoReload = true }) {
+  /**
+   * Add one override rule alongside any that are already active. If the
+   * session was already enabled, the CDP interception is refreshed to cover
+   * the new rule set automatically - no separate re-enable step needed.
+   */
+  async addRule({ tabId, bundlePath, resourceUrl, autoReload = true }) {
     if (!this.bundles.length) {
       throw new Error('Select a local bundle, JavaScript, or HTML file first.');
     }
@@ -162,20 +159,71 @@ export class Controller {
       throw new Error('Resource URL must be a matching Dynamics web resource or PCF bundle from the selected tab.');
     }
 
-    if (this.client) await this.disable();
+    if (this.rules.length && this.rules.some(existing => existing.tabId !== tabId)) {
+      throw new Error('All overrides in one session must target the same Dynamics tab. Remove existing overrides first to switch tabs.');
+    }
 
-    this.config = await saveProject(this.root, {
+    if (this.rules.some(existing => existing.resourceUrl === resourceUrl)) {
+      throw new Error('That Dynamics resource already has an active override.');
+    }
+
+    const newRule = {
+      id: randomUUID(),
       tabId,
       bundlePath: resolved,
+      resourceUrl,
       rule: createRule(resourceUrl, this.resourceType),
       resourceType: this.resourceType,
       dynamicsHostname: targetHost,
-      autoReload,
-      enabled: false
-    });
+      autoReload
+    };
 
+    this.rules.push(newRule);
+    await this.persist();
+
+    const wasEnabled = this.enabled;
+    if (wasEnabled) {
+      await this.disable();
+      await this.enable();
+    } else {
+      this.startWatcher();
+    }
+
+    return this.snapshot();
+  }
+
+  /**
+   * Remove one override rule. If the session was enabled, interception is
+   * refreshed to drop that rule's pattern (or fully disabled if none remain).
+   */
+  async removeRule(ruleId) {
+    const index = this.rules.findIndex(existing => existing.id === ruleId);
+    if (index === -1) throw new Error('No such override rule.');
+
+    const wasEnabled = this.enabled;
+    if (wasEnabled) await this.disable();
+
+    this.rules.splice(index, 1);
+    await this.persist();
     this.startWatcher();
-    return this.config;
+
+    if (wasEnabled && this.rules.length) {
+      await this.enable();
+    }
+
+    return this.snapshot();
+  }
+
+  /**
+   * Compatibility wrapper matching the original single-rule API: replaces
+   * the entire rule set with exactly this one rule. Existing UI built
+   * against the single-override model keeps working unchanged; addRule/
+   * removeRule are the primitives for genuine multi-rule use.
+   */
+  async configure({ tabId, bundlePath, resourceUrl, autoReload = true }) {
+    if (this.enabled) await this.disable();
+    this.rules = [];
+    return this.addRule({ tabId, bundlePath, resourceUrl, autoReload });
   }
 
   async configureSession(client, sessionId) {
@@ -183,20 +231,21 @@ export class Controller {
     await client.send('Network.setCacheDisabled', { cacheDisabled: true }, sessionId);
     await client.send('Network.setBypassServiceWorker', { bypass: true }, sessionId);
 
-    const patterns = interceptionPatterns(this.config?.rule);
+    const patterns = this.rules.flatMap(r => interceptionPatterns(r.rule));
     if (!patterns.length) throw new Error('No configured resource interception pattern.');
 
     await client.send('Fetch.enable', { patterns }, sessionId);
   }
 
   async enable() {
-    if (!this.config?.rule || !this.config?.bundlePath) {
-      throw new Error('Select both the local file and Dynamics resource first.');
+    if (!this.rules.length) {
+      throw new Error('Add at least one override rule first.');
     }
 
     await this.disable();
 
-    const target = await this.target(this.config.tabId);
+    const tabId = this.rules[0].tabId;
+    const target = await this.target(tabId);
     let client;
 
     try {
@@ -206,10 +255,9 @@ export class Controller {
       client.on('disconnect', () => {
         if (this.client === client) {
           this.client = null;
-          this.config.enabled = false;
+          this.enabled = false;
 
-          saveProject(this.root, this.config)
-            .catch(error => console.error(`Config: ${error.message}`));
+          this.persist().catch(error => console.error(`Config: ${error.message}`));
 
           this.status = {
             stage: 'disconnected',
@@ -231,13 +279,13 @@ export class Controller {
         flatten: true
       });
 
-      this.config.enabled = true;
-      await saveProject(this.root, this.config);
+      this.enabled = true;
+      await this.persist();
 
       this.status = {
         stage: 'attached',
         at: Date.now(),
-        url: this.config.rule.selectedUrl
+        rules: this.rules.length
       };
 
       this.startWatcher();
@@ -246,8 +294,8 @@ export class Controller {
       if (this.client === client) this.client = null;
       client?.close();
 
-      this.config.enabled = false;
-      await saveProject(this.root, this.config).catch(() => {});
+      this.enabled = false;
+      await this.persist().catch(() => {});
 
       this.status = {
         stage: 'error',
@@ -297,7 +345,9 @@ export class Controller {
     const url = params.request.url;
 
     try {
-      if (!matchesRule(this.config.rule, url)) {
+      const matched = this.rules.find(r => matchesRule(r.rule, url));
+
+      if (!matched) {
         return await client.send(
           'Fetch.continueRequest',
           { requestId: id },
@@ -309,11 +359,12 @@ export class Controller {
         stage: 'matched',
         at: Date.now(),
         url,
-        target: sessionId ? 'iframe' : 'page'
+        target: sessionId ? 'iframe' : 'page',
+        ruleId: matched.id
       };
 
-      const { data, stat } = await stableRead(this.config.bundlePath);
-      const contentType = this.resourceType === 'html'
+      const { data, stat } = await stableRead(matched.bundlePath);
+      const contentType = matched.resourceType === 'html'
         ? 'text/html; charset=utf-8'
         : 'application/javascript; charset=utf-8';
 
@@ -347,7 +398,8 @@ export class Controller {
         target: sessionId ? 'iframe' : 'page',
         size: data.length,
         modified: stat.mtimeMs,
-        hash
+        hash,
+        ruleId: matched.id
       };
 
       console.log(
@@ -378,17 +430,15 @@ export class Controller {
       client.close();
     }
 
-    if (this.config) {
-      this.config.enabled = false;
-      await saveProject(this.root, this.config);
-    }
+    this.enabled = false;
+    await this.persist();
 
     this.status = { stage: 'off', at: Date.now() };
     return this.snapshot();
   }
 
   async reload(tabId) {
-    if (!tabId || tabId === this.config?.tabId) {
+    if (!tabId || tabId === this.rules[0]?.tabId) {
       if (!this.client) throw new Error('Override is not active.');
 
       await this.client.send('Network.clearBrowserCache').catch(() => {});
@@ -409,11 +459,25 @@ export class Controller {
     }
   }
 
+  /**
+   * Compatibility wrapper: sets autoReload on the first/only rule, matching
+   * the existing single-rule UI's single auto-reload checkbox.
+   */
   async setAutoReload(value) {
-    if (!this.config) throw new Error('Configure the project first.');
+    if (!this.rules.length) throw new Error('Configure the project first.');
 
-    this.config.autoReload = Boolean(value);
-    await saveProject(this.root, this.config);
+    this.rules[0].autoReload = Boolean(value);
+    await this.persist();
+    return this.snapshot();
+  }
+
+  /** Per-rule auto-reload control, for genuine multi-rule use. */
+  async setRuleAutoReload(ruleId, value) {
+    const rule = this.rules.find(existing => existing.id === ruleId);
+    if (!rule) throw new Error('No such override rule.');
+
+    rule.autoReload = Boolean(value);
+    await this.persist();
     return this.snapshot();
   }
 
@@ -421,32 +485,37 @@ export class Controller {
     this.stopWatcher?.();
     clearTimeout(this._reloadTimer);
 
-    if (!this.config?.bundlePath ||
-        !this.bundles.includes(path.resolve(this.config.bundlePath))) return;
+    if (!this.rules.length) {
+      this.stopWatcher = undefined;
+      return;
+    }
 
-    const stopFileWatch = watchBundle(this.config.bundlePath, async ({ data }) => {
+    const stops = this.rules.map(r => watchBundle(r.bundlePath, async ({ data }) => {
       this.status = {
         stage: 'bundle-changed',
         at: Date.now(),
-        size: data.length
+        size: data.length,
+        ruleId: r.id
       };
 
-      if (!(this.config.enabled && this.config.autoReload && this.client)) return;
+      if (!(this.enabled && r.autoReload && this.client)) return;
 
       // A single edit can produce several rapid recompiles (editor autosave,
       // webpack's own multi-pass writes). Reload once after changes settle
-      // rather than once per intermediate rebuild.
+      // rather than once per intermediate rebuild. One shared timer covers
+      // all rules: they're all served into the same page, so a burst of
+      // changes across several overridden files still only needs one reload.
       clearTimeout(this._reloadTimer);
       this._reloadTimer = setTimeout(() => {
         this.reload().catch(error => {
           this.status = { stage: 'error', message: error.message, at: Date.now() };
         });
       }, this.reloadSettleMs);
-    });
+    }));
 
     this.stopWatcher = () => {
       clearTimeout(this._reloadTimer);
-      stopFileWatch();
+      stops.forEach(stop => stop());
     };
   }
 
@@ -455,7 +524,9 @@ export class Controller {
       projectRoot: this.root,
       chromePort: this.port,
       bundles: this.bundles,
-      config: this.config,
+      rules: this.rules,
+      config: this.rules[0] || null, // back-compat alias for the existing single-rule extension UI
+      enabled: this.enabled,
       status: this.status,
       connected: Boolean(this.client),
       resourceType: this.resourceType,

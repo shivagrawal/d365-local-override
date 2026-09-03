@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "D365 Local Override",
+  "name": "PatchPilot",
   "version": "1.2.8",
   "description": "Serve a local PCF bundle or Model-Driven JavaScript/HTML web resource into a running Dynamics 365 session, without redeploying.",
   "permissions": ["activeTab", "storage", "tabs", "nativeMessaging"],
@@ -8,7 +8,7 @@
   "background": { "service_worker": "background.js" },
   "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
   "action": {
-    "default_title": "D365 Local Override",
+    "default_title": "PatchPilot",
     "default_popup": "popup.html",
     "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png" }
   },

@@ -6,11 +6,15 @@
 // is redirected to stderr instead — Chrome ignores stderr, we don't need it.
 import { launch } from './main.js';
 import { pickPath } from './picker.js';
+import { detectWatchTarget } from './pcf-watch.js';
+import { PcfWatcher } from './pcf-watcher-process.js';
 import { encodeMessage, createDecoder } from './native-protocol.js';
 
 console.log = (...args) => console.error(...args);
 
 let controller = null;
+let server = null;
+const watcher = new PcfWatcher();
 
 const send = message => process.stdout.write(encodeMessage(message));
 
@@ -23,6 +27,7 @@ async function handle(message) {
       }
       const result = await launch(message.options || {});
       controller = result.controller;
+      server = result.server;
       send({ type: 'status', stage: 'started', snapshot: controller.snapshot() });
       return;
     }
@@ -34,6 +39,10 @@ async function handle(message) {
       }
       await controller.close();
       controller = null;
+      if (server) {
+        await new Promise(resolve => server.close(resolve));
+        server = null;
+      }
       send({ type: 'status', stage: 'stopped' });
       return;
     }
@@ -61,6 +70,39 @@ async function handle(message) {
       return;
     }
 
+    if (message.type === 'watch-detect') {
+      const bundlePath = message.options?.bundlePath;
+      if (!bundlePath) {
+        send({ type: 'error', message: 'watch-detect requires a bundlePath.' });
+        return;
+      }
+      const detected = await detectWatchTarget(bundlePath);
+      send({ type: 'watch-detected', ...detected });
+      return;
+    }
+
+    if (message.type === 'watch-start') {
+      const { projectRoot, scriptName } = message.options || {};
+      try {
+        const result = watcher.start(projectRoot, scriptName);
+        send({ type: 'watch-status', ...result.snapshot, alreadyRunning: !result.started });
+      } catch (error) {
+        send({ type: 'error', message: error.message });
+      }
+      return;
+    }
+
+    if (message.type === 'watch-stop') {
+      await watcher.stop();
+      send({ type: 'watch-status', ...watcher.snapshot() });
+      return;
+    }
+
+    if (message.type === 'watch-status') {
+      send({ type: 'watch-status', ...watcher.snapshot() });
+      return;
+    }
+
     if (message.type === 'ping') {
       send({ type: 'pong', running: Boolean(controller) });
       return;
@@ -83,8 +125,11 @@ process.stdin.on('data', createDecoder((message, error) => {
 
 // Chrome closes stdin when the extension's native port disconnects
 // (background service worker unloaded, extension disabled/removed, browser
-// closing). Stop the helper cleanly rather than leaving Chrome/CDP attached.
+// closing). Stop the helper and any running PCF build watch cleanly rather
+// than leaving Chrome/CDP attached or an orphaned webpack process behind.
 process.stdin.on('end', async () => {
+  await watcher.stop();
   if (controller) await controller.close().catch(() => {});
+  if (server) await new Promise(resolve => server.close(resolve)).catch(() => {});
   process.exit(0);
 });

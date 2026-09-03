@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id);
 let state,timer,togglePending=false;
 
 async function api(path,data){
-  const slow=['/scan','/configure','/enable','/disable'].includes(path);
+  const slow=['/scan','/rules','/remove-rule','/enable','/disable'].includes(path);
   const response=await fetch(`${API}${path}`,{
     method:data?'POST':'GET',
     headers:data?{'Content-Type':'application/json'}:{},
@@ -16,16 +16,19 @@ async function api(path,data){
 }
 function showError(message=''){ $('error').textContent=message; $('error').classList.toggle('hidden',!message); }
 function option(value,text){const o=document.createElement('option');o.value=value;o.textContent=text;return o;}
+function resourceLabel(path){ try{return new URL(path).pathname;}catch{return path;} }
+function localLabel(p,root){ return p.startsWith(root)?p.slice(root.length).replace(/^[\\/]/,''):p.split(/[\\/]/).pop(); }
 
 async function loadTabs(){
   const tabs=await api('/tabs');
-  $('tab').replaceChildren(...tabs.map(t=>option(t.id,`${t.title||'Dynamics'} — ${new URL(t.url).hostname}`)));
-  if(state?.config?.tabId&&tabs.some(t=>t.id===state.config.tabId))$('tab').value=state.config.tabId;
+  const sharedTabId=state?.rules?.[0]?.tabId;
+  $('tab').replaceChildren(...tabs.map(t=>option(t.id,`${t.title||'Dynamics'} (${new URL(t.url).hostname})`)));
+  if(sharedTabId&&tabs.some(t=>t.id===sharedTabId))$('tab').value=sharedTabId;
   if(!tabs.length)$('tab').append(option('','Open Dynamics in development Chrome'));
 }
 
 function renderStatus(status){
-  const labels={idle:'Idle',off:'Override OFF',attached:'✓ Interception attached — waiting for request',matched:'✓ Dynamics resource matched',served:'✓ Local file served','bundle-changed':'✓ Local file changed',disconnected:'✕ Chrome disconnected',error:'✕ Interception failed'};
+  const labels={idle:'Idle',off:'Override OFF',attached:'Interception attached — waiting for request',matched:'Dynamics resource matched',served:'Local file served','bundle-changed':'Local file changed',disconnected:'Chrome disconnected',error:'Interception failed'};
   const lines=[labels[status.stage]||status.stage];
   if(status.at)lines.push(new Date(status.at).toLocaleTimeString());
   if(status.size)lines.push(status.size<1048576?`${(status.size/1024).toFixed(1)} KB`:`${(status.size/1048576).toFixed(2)} MB`);
@@ -37,25 +40,77 @@ function renderStatus(status){
   $('diagnostics').textContent=lines.join('\n');
 }
 
+function renderRulesList(){
+  const rules=state.rules||[];
+  if(!rules.length){
+    $('rulesList').innerHTML='';
+    const empty=document.createElement('div');
+    empty.className='empty-state';
+    empty.textContent='No overrides yet';
+    $('rulesList').append(empty);
+    return;
+  }
+  $('rulesList').replaceChildren(...rules.map(rule=>{
+    const row=document.createElement('div');
+    row.className='override-row';
+
+    const dot=document.createElement('span');
+    dot.className='dot'+(state.connected?' on':'');
+
+    const mapping=document.createElement('div');
+    mapping.className='mapping';
+    const remote=document.createElement('div');
+    remote.textContent=resourceLabel(rule.resourceUrl);
+    const local=document.createElement('div');
+    local.className='local';
+    local.textContent=`← ${localLabel(rule.bundlePath,state.projectRoot)}`;
+    mapping.append(remote,local);
+
+    const reload=document.createElement('input');
+    reload.type='checkbox';
+    reload.title='Auto reload on change';
+    reload.checked=rule.autoReload!==false;
+    reload.onchange=async()=>{
+      try{state=await api('/rule-auto-reload',{ruleId:rule.id,enabled:reload.checked});render();}
+      catch(e){showError(e.message)}
+    };
+
+    const remove=document.createElement('button');
+    remove.className='row-action danger';
+    remove.textContent='×';
+    remove.title='Remove this override';
+    remove.onclick=async()=>{
+      try{state=await api('/remove-rule',{ruleId:rule.id});render();}
+      catch(e){showError(e.message)}
+    };
+
+    row.append(dot,mapping,reload,remove);
+    return row;
+  }));
+}
+
 function render(){
   const script=state.resourceType==='script',html=state.resourceType==='html';
   $('localFileLabel').textContent=html?'Local HTML file':script?'Local JavaScript file':'Local bundle';
   $('dynamicsResourceLabel').textContent=html?'Dynamics HTML resource':script?'Dynamics JavaScript resource':'Dynamics bundle';
   $('scan').textContent=html?'Find HTML web resource':script?'Find JavaScript web resource':'Find Dynamics bundle';
-  $('project').textContent=state.projectRoot;
-  $('bundle').replaceChildren(...state.bundles.map(v=>option(v,v.replace(`${state.projectRoot}\\`,''))));
+  $('bundle').replaceChildren(...state.bundles.map(v=>option(v,localLabel(v,state.projectRoot))));
   if(!state.hasArtifact)$('bundle').append(option('','No local file selected yet'));
-  if(state.config?.bundlePath)$('bundle').value=state.config.bundlePath;
   if(state.hasArtifact&&!$('artifactPath').value)$('artifactPath').value=state.bundles[0];
   $('scan').disabled=!state.hasArtifact;
-  $('resource').textContent=state.config?.rule?new URL(state.config.rule.selectedUrl).pathname:'Not configured';
-  $('resource').classList.toggle('muted',!state.config?.rule);
   if(!togglePending)$('override').checked=Boolean(state.connected);
   $('override').disabled=togglePending;
-  $('autoReload').checked=state.config?.autoReload!==false;
-  $('active').classList.toggle('hidden',!state.connected);
+
+  renderRulesList();
+
+  const count=state.rules?.length||0;
+  $('statusDot').className='dot'+(state.connected?' on':count?'':' ');
+  $('statusLine').textContent=count
+    ?`${count} override${count===1?'':'s'} ${state.connected?'active':'configured'}`
+    :'Helper connected';
+
   renderStatus(state.status);
-  chrome.tabs.query({active:true,currentWindow:true}).then(([tab])=>tab?.id&&chrome.tabs.sendMessage(tab.id,{active:state.connected}).catch(()=>{}));
+  chrome.tabs.query({active:true,currentWindow:true}).then(([tab])=>tab?.id&&chrome.tabs.sendMessage(tab.id,{active:state.connected,resourceType:state.resourceType}).catch(()=>{}));
 }
 
 async function initialize(){
@@ -63,13 +118,19 @@ async function initialize(){
     state=await api('/status');
     $('offline').classList.add('hidden');$('online').classList.remove('hidden');
     await loadTabs();render();timer=setInterval(refreshStatus,1000);
+    sendToNativeHost('watch-status').catch(()=>{});
+    if(state.hasArtifact&&state.bundles?.length)detectWatch(state.bundles[0]);
   }catch{$('offline').classList.remove('hidden');$('online').classList.add('hidden');}
 }
 async function refreshStatus(){
   try{
     state=await api('/status');renderStatus(state.status);
     if(!togglePending)$('override').checked=state.connected;
-    $('override').disabled=togglePending;$('active').classList.toggle('hidden',!state.connected);
+    $('override').disabled=togglePending;
+    renderRulesList();
+    const count=state.rules?.length||0;
+    $('statusDot').className='dot'+(state.connected?' on':'');
+    $('statusLine').textContent=count?`${count} override${count===1?'':'s'} ${state.connected?'active':'configured'}`:'Helper connected';
   }catch{clearInterval(timer);$('offline').classList.remove('hidden');$('online').classList.add('hidden');}
 }
 function showNativeError(message=''){ $('nativeError').textContent=message; $('nativeError').classList.toggle('hidden',!message); }
@@ -82,8 +143,6 @@ $('startHelper').onclick=async()=>{
   showNativeError();
   const type=$('launchType').value;
   const value=$('bundleFolder').value.trim().replace(/^"|"$/g,'');
-  // A path is optional now: the helper can start bare and the artifact is
-  // selected afterwards from the main panel.
   const options=value?{[type]:value}:{};
   $('startHelper').disabled=true;$('startHelper').textContent='Starting…';
   try{
@@ -122,15 +181,28 @@ chrome.runtime.onMessage.addListener(message=>{
   if(message.type==='status'&&message.stage==='stopped'){
     clearInterval(timer);
     $('online').classList.add('hidden');$('offline').classList.remove('hidden');
+    chrome.tabs.query({active:true,currentWindow:true}).then(([tab])=>tab?.id&&chrome.tabs.sendMessage(tab.id,{active:false}).catch(()=>{}));
   }
   if(message.type==='error'){
     showNativeError(message.message);
+  }
+  if(message.type==='watch-detected'){
+    watchState={...watchState,projectRoot:message.projectRoot,scripts:message.scripts||{},suggested:message.suggested};
+    renderWatch();
+    if(message.projectRoot&&message.suggested&&$('autoStartWatch').checked&&!watchState.running){
+      sendToNativeHost('watch-start',{projectRoot:message.projectRoot,scriptName:message.suggested}).catch(()=>{});
+    }
+  }
+  if(message.type==='watch-status'){
+    watchState={...watchState,running:Boolean(message.running),log:message.log||watchState.log};
+    if(message.projectRoot)watchState.projectRoot=message.projectRoot;
+    renderWatch();
   }
 });
 
 async function copyCommand(button,command){
   await navigator.clipboard.writeText(command);
-  const original=button.textContent;button.textContent='Copied!';setTimeout(()=>button.textContent=original,1200);
+  const original=button.textContent;button.textContent='Copied';setTimeout(()=>button.textContent=original,1200);
 }
 function updateLaunchCommand(){
   const type=$('launchType').value,value=$('bundleFolder').value.trim().replace(/^"|"$/g,'');
@@ -140,6 +212,13 @@ function updateLaunchCommand(){
 $('launchType').onchange=updateLaunchCommand;$('bundleFolder').oninput=updateLaunchCommand;
 $('copy').onclick=e=>copyCommand(e.currentTarget,$('launchCommand').textContent);
 $('refreshTabs').onclick=()=>loadTabs().catch(e=>showError(e.message));
+
+$('addOverrideToggle').onclick=()=>{
+  const opening=$('addPanel').classList.contains('hidden');
+  $('addPanel').classList.toggle('hidden');
+  $('addOverrideToggle').textContent=opening?'Cancel':'+ Add override';
+  if(!opening){showError();$('candidates').replaceChildren();}
+};
 
 async function browse(mode,targetInputId){
   const button=targetInputId==='bundleFolder'?$('browseStartFolder'):(mode==='folder'?$('browseFolder'):$('browseFile'));
@@ -168,8 +247,71 @@ $('selectArtifact').onclick=async()=>{
   try{
     state=await api('/artifact',{path:value});
     render();
+    if(state.hasArtifact)detectWatch(state.bundles[0]);
   }catch(e){showError(e.message)}
   finally{$('selectArtifact').disabled=false}
+};
+
+// --- PCF build watch (npm run start:watch, automated instead of a manual terminal) ---
+function stripAnsi(text){
+  return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g,'');
+}
+
+let watchState={projectRoot:null,scripts:{},suggested:null,running:false,log:''};
+
+function renderWatch(){
+  const hasTarget=Boolean(watchState.projectRoot);
+  $('watchTarget').classList.toggle('hidden',!hasTarget);
+  $('watchScript').classList.toggle('hidden',!hasTarget);
+  $('watchScriptLabel').classList.toggle('hidden',!hasTarget);
+  $('startWatch').classList.toggle('hidden',!hasTarget||watchState.running);
+  $('stopWatch').classList.toggle('hidden',!watchState.running);
+
+  if(hasTarget){
+    $('watchTarget').textContent=watchState.projectRoot;
+    $('watchHint').textContent=watchState.running?'Running — this is the same build your bundle is served from.':'Detected. Start it here instead of a separate terminal.';
+    const names=Object.keys(watchState.scripts);
+    if(names.length){
+      $('watchScript').replaceChildren(...names.map(n=>option(n,n)));
+      $('watchScript').value=watchState.suggested&&names.includes(watchState.suggested)?watchState.suggested:names[0];
+    }
+  }else{
+    $('watchHint').textContent='Detected automatically once you detect a local file above.';
+  }
+
+  const el=$('watchLog');
+  const wasAtBottom=el.scrollTop+el.clientHeight>=el.scrollHeight-4;
+  el.textContent=watchState.log?stripAnsi(watchState.log).slice(-4000):'Not running';
+  if(wasAtBottom)el.scrollTop=el.scrollHeight;
+}
+
+async function detectWatch(bundlePath){
+  if(!bundlePath)return;
+  try{ await sendToNativeHost('watch-detect',{bundlePath}); }
+  catch{ /* optional feature, fail quietly */ }
+}
+
+$('startWatch').onclick=async()=>{
+  const scriptName=$('watchScript').value;
+  if(!watchState.projectRoot||!scriptName)return;
+  $('startWatch').disabled=true;
+  try{
+    const response=await sendToNativeHost('watch-start',{projectRoot:watchState.projectRoot,scriptName});
+    if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
+  }catch(e){showError(e.message)}
+  finally{$('startWatch').disabled=false}
+};
+
+$('stopWatch').onclick=async()=>{
+  try{
+    const response=await sendToNativeHost('watch-stop');
+    if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
+  }catch(e){showError(e.message)}
+};
+
+chrome.storage?.local?.get(['autoStartWatch'],r=>{$('autoStartWatch').checked=Boolean(r.autoStartWatch);});
+$('autoStartWatch').onchange=()=>{
+  chrome.storage?.local?.set({autoStartWatch:$('autoStartWatch').checked});
 };
 
 $('scan').onclick=async()=>{
@@ -180,7 +322,7 @@ $('scan').onclick=async()=>{
     for(const c of candidates){
       const b=document.createElement('button');
       b.textContent=`${c.source}: ${new URL(c.url).pathname}`;
-      b.onclick=()=>configure(c.url);
+      b.onclick=()=>addOverride(c.url);
       $('candidates').append(b);
     }
     if(!candidates.length)$('candidates').textContent='No candidates found.';
@@ -193,15 +335,16 @@ $('useResourceUrl').onclick=()=>{
   try{
     const url=new URL(value);
     if(url.protocol!=='https:'||!/\.dynamics\.com$/i.test(url.hostname))throw new Error('Enter a complete Dynamics HTTPS resource URL.');
-    configure(url.href);
+    addOverride(url.href);
   }catch(e){showError(e.message)}
 };
 
-async function configure(resourceUrl){
+async function addOverride(resourceUrl){
   try{
-    await api('/configure',{tabId:$('tab').value,bundlePath:$('bundle').value,resourceUrl,autoReload:$('autoReload').checked});
-    state=await api('/status');$('resource').textContent=new URL(resourceUrl).pathname;
-    $('resource').classList.remove('muted');$('resourceUrl').value=resourceUrl;$('candidates').replaceChildren();render();
+    state=await api('/rules',{tabId:$('tab').value,bundlePath:$('bundle').value,resourceUrl});
+    $('resourceUrl').value='';$('candidates').replaceChildren();
+    $('addPanel').classList.add('hidden');$('addOverrideToggle').textContent='+ Add override';
+    render();
   }catch(e){showError(e.message)}
 }
 
@@ -210,11 +353,6 @@ $('override').onchange=async e=>{
   try{state=await api(requested?'/enable':'/disable',{});render();}
   catch(x){e.target.checked=Boolean(state?.connected);showError(x.name==='TimeoutError'?'Override activation timed out. Check the helper and Chrome connection.':x.message)}
   finally{togglePending=false;e.target.disabled=false}
-};
-
-$('autoReload').onchange=async e=>{
-  try{state=await api('/auto-reload',{enabled:e.target.checked});render();}
-  catch(x){showError(x.message)}
 };
 
 $('reload').onclick=()=>api('/reload',{tabId:$('tab').value}).catch(e=>showError(e.message));

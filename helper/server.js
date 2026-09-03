@@ -44,6 +44,9 @@ export function startServer(controller) {
       else if (req.method === 'GET' && url.pathname === '/tabs') result = await controller.dynamicsTabs();
       else if (req.method === 'POST' && url.pathname === '/scan') result = await controller.scan(data.tabId, data.resourceType);
       else if (req.method === 'POST' && url.pathname === '/configure') result = await controller.configure(data);
+      else if (req.method === 'POST' && url.pathname === '/rules') result = await controller.addRule(data);
+      else if (req.method === 'POST' && url.pathname === '/remove-rule') result = await controller.removeRule(data.ruleId);
+      else if (req.method === 'POST' && url.pathname === '/rule-auto-reload') result = await controller.setRuleAutoReload(data.ruleId, data.enabled);
       else if (req.method === 'POST' && url.pathname === '/enable') result = await controller.enable();
       else if (req.method === 'POST' && url.pathname === '/disable') result = await controller.disable();
       else if (req.method === 'POST' && url.pathname === '/reload') result = await controller.reload(data.tabId);

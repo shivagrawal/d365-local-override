@@ -1,9 +1,46 @@
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { ensureChrome } from './chrome.js';
 import { discoverBundles, resolveBundle, resolveHtml, resolveScript } from './bundles.js';
 import { projectConfig } from './config.js';
 import { Controller } from './controller.js';
 import { startServer } from './server.js';
+
+/**
+ * Converts whatever was persisted under a project into the current
+ * rules-array shape, and drops any rule that can no longer be trusted for
+ * this launch (wrong resource type, or a bundle path no longer among the
+ * discovered/explicit artifacts - keeping it would risk silently
+ * intercepting the wrong request). Pure and side-effect free so the
+ * migration itself is directly testable without a real Chrome/CDP session.
+ */
+export function migrateStoredConfig(stored, resourceType, bundles) {
+  let rules = [];
+
+  if (stored) {
+    if (Array.isArray(stored.rules)) {
+      rules = stored.rules;
+    } else if (stored.bundlePath) {
+      // Saved by the previous single-rule model: bundlePath sits at the top
+      // level instead of inside a rules array. Wrap it rather than discard it.
+      rules = [{
+        id: randomUUID(),
+        tabId: stored.tabId,
+        bundlePath: stored.bundlePath,
+        resourceUrl: stored.rule?.selectedUrl,
+        rule: stored.rule,
+        resourceType: stored.resourceType || resourceType,
+        dynamicsHostname: stored.dynamicsHostname,
+        autoReload: stored.autoReload !== false
+      }];
+    }
+  }
+
+  return rules.filter(r =>
+    (r.resourceType || 'pcf') === resourceType &&
+    bundles.includes(path.resolve(r.bundlePath || ''))
+  );
+}
 
 export async function launch({ root, bundle, script, html, chromePort = 9222 } = {}) {
   let bundles;
@@ -30,25 +67,18 @@ export async function launch({ root, bundle, script, html, chromePort = 9222 } =
   }
 
   const chrome = await ensureChrome(chromePort);
-  let config = await projectConfig(root);
-
-  if (config &&
-      ((config.resourceType || 'pcf') !== resourceType ||
-       !bundles.includes(path.resolve(config.bundlePath || '')))) {
-    config = null;
-  }
+  const stored = await projectConfig(root);
+  const rules = migrateStoredConfig(stored, resourceType, bundles);
 
   const controller = new Controller({
     root,
     port: chromePort,
     bundles,
-    config,
+    rules,
     resourceType
   });
 
-  if (config?.bundlePath && bundles.includes(path.resolve(config.bundlePath))) {
-    controller.startWatcher();
-  }
+  if (rules.length) controller.startWatcher();
 
   const api = await startServer(controller);
   const localLabel = resourceType === 'pcf' ? 'bundle' : resourceType;

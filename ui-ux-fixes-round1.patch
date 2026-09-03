@@ -1,0 +1,201 @@
+diff --git a/extension/indicator.js b/extension/indicator.js
+index 666d2c3..5f19a68 100644
+--- a/extension/indicator.js
++++ b/extension/indicator.js
+@@ -2,9 +2,10 @@ chrome.runtime.onMessage.addListener(message => {
+   const id = 'pcf-local-override-indicator';
+   document.getElementById(id)?.remove();
+   if (!message.active) return;
++  const labels = { pcf: 'LOCAL PCF', script: 'LOCAL JS', html: 'LOCAL HTML' };
+   const b = document.createElement('button');
+   b.id = id;
+-  b.textContent = 'LOCAL PCF';
++  b.textContent = labels[message.resourceType] || 'LOCAL OVERRIDE';
+   b.onclick = () => b.remove();
+   Object.assign(b.style, {
+     position: 'fixed', right: '12px', bottom: '12px', zIndex: 2147483647,
+diff --git a/extension/manifest.json b/extension/manifest.json
+index ebd37a2..d8a0f74 100644
+--- a/extension/manifest.json
++++ b/extension/manifest.json
+@@ -1,6 +1,6 @@
+ {
+   "manifest_version": 3,
+-  "name": "D365 Local Override",
++  "name": "PatchPilot",
+   "version": "1.2.8",
+   "description": "Serve a local PCF bundle or Model-Driven JavaScript/HTML web resource into a running Dynamics 365 session, without redeploying.",
+   "permissions": ["activeTab", "storage", "tabs", "nativeMessaging"],
+@@ -8,7 +8,7 @@
+   "background": { "service_worker": "background.js" },
+   "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+   "action": {
+-    "default_title": "D365 Local Override",
++    "default_title": "PatchPilot",
+     "default_popup": "popup.html",
+     "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png" }
+   },
+diff --git a/extension/popup.css b/extension/popup.css
+index 5311d6a..624ccf2 100644
+--- a/extension/popup.css
++++ b/extension/popup.css
+@@ -1 +1 @@
+-:root{color-scheme:light;--primary:#2563eb;--text:#172033;--muted:#667085;--border:#e4e7ec;--surface:#f8fafc;--success:#079455;--danger:#d92d20}*{box-sizing:border-box}body{margin:0;width:420px;max-height:600px;overflow-y:auto;background:#f5f7fb;color:var(--text);font:13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}main{padding:16px}.app-header{display:flex;align-items:center;gap:11px;margin-bottom:14px}.brand-icon{display:block;width:42px;height:42px;border-radius:12px}.app-header h1{margin:0;font-size:18px}.app-header p{margin:2px 0;color:var(--muted);font-size:11px}.version{margin-left:auto;padding:3px 7px;border-radius:20px;background:#e9efff;color:var(--primary);font-size:10px;font-weight:700}.hidden{display:none!important}.card,.guide,.diagnostics-card,.notice{margin-top:10px;border:1px solid var(--border);border-radius:10px;background:#fff;box-shadow:0 1px 2px #1018280d}.card{padding:12px}label{display:block;margin:9px 0 5px;color:#475467;font-size:11px;font-weight:700;text-transform:uppercase}.hint{margin:0 0 7px;color:var(--muted);font-size:11px;text-transform:none;font-weight:400}.connection-status{color:var(--success);font-weight:700}.value-box{padding:8px 9px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-size:12px;overflow-wrap:anywhere}.muted{color:var(--muted)}select,.path-input{width:100%;min-height:36px;padding:7px 9px;border:1px solid #cbd2dc;border-radius:6px;background:#fff;color:var(--text);font:inherit}.command-row{display:flex;gap:5px;margin-top:7px}.command-row code{flex:1;padding:7px 8px;background:#f2f4f7;font:11px ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.primary-button,.secondary-button{min-height:36px;padding:8px 12px;border-radius:7px;margin-top:9px}.primary-button{border:1px solid var(--primary);background:var(--primary);color:#fff}.secondary-button{border:1px solid #cbd2dc;background:#fff;color:#344054}.full-width{width:100%}.switch-row{display:flex;align-items:center;justify-content:space-between;text-transform:none}.switch-row input{width:auto}.active{margin-top:8px;padding:8px;text-align:center;border:1px solid #abefc6;border-radius:7px;background:#ecfdf3;color:#067647;font-weight:800}.diagnostics-card summary,.guide summary{padding:10px 12px;cursor:pointer;font-weight:700}.diagnostics-card #diagnostics{padding:10px 12px;border-top:1px solid var(--border);color:var(--muted);font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-line}.guide ol{padding:2px 16px 8px 32px}.notice{padding:12px}.offline{background:#fffaeb}.error{margin-top:10px;padding:9px;border:1px solid #fecdca;border-radius:7px;background:#fef3f2;color:var(--danger);font-size:11px}button{font:inherit;cursor:pointer}.text-button{border:0;background:none;color:var(--primary);font-size:11px}#candidates{display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:220px;overflow-y:auto;overflow-x:hidden}#candidates button{width:100%;max-width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;word-break:break-all;padding:8px 9px;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:11px;line-height:1.4}#candidates button:hover{background:var(--surface);border-color:var(--primary)}
++:root{color-scheme:light;--primary:#2563eb;--text:#172033;--muted:#667085;--border:#e4e7ec;--surface:#f8fafc;--success:#079455;--danger:#d92d20}*{box-sizing:border-box}body{margin:0;width:420px;max-height:600px;overflow-y:auto;background:#f5f7fb;color:var(--text);font:13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}main{padding:16px}.app-header{display:flex;align-items:center;gap:11px;margin-bottom:14px}.brand-icon{display:block;width:42px;height:42px;border-radius:12px}.app-header h1{margin:0;font-size:18px}.app-header p{margin:2px 0;color:var(--muted);font-size:11px}.version{margin-left:auto;padding:3px 7px;border-radius:20px;background:#e9efff;color:var(--primary);font-size:10px;font-weight:700}.hidden{display:none!important}.card,.guide,.diagnostics-card,.notice{margin-top:10px;border:1px solid var(--border);border-radius:10px;background:#fff;box-shadow:0 1px 2px #1018280d}.card{padding:12px}label{display:block;margin:9px 0 5px;color:#475467;font-size:11px;font-weight:700;text-transform:uppercase}.hint{margin:0 0 7px;color:var(--muted);font-size:11px;text-transform:none;font-weight:400}.connection-status{color:var(--success);font-weight:700}.value-box{padding:8px 9px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-size:12px;overflow-wrap:anywhere}.muted{color:var(--muted)}select,.path-input{width:100%;min-height:36px;padding:7px 9px;border:1px solid #cbd2dc;border-radius:6px;background:#fff;color:var(--text);font:inherit}.command-row{display:flex;gap:5px;margin-top:7px}.command-row code{flex:1;padding:7px 8px;background:#f2f4f7;font:11px ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.primary-button,.secondary-button{min-height:36px;padding:8px 12px;border-radius:7px;margin-top:9px}.primary-button{border:1px solid var(--primary);background:var(--primary);color:#fff}.secondary-button{border:1px solid #cbd2dc;background:#fff;color:#344054}.full-width{width:100%}.switch-row{display:flex;align-items:center;justify-content:space-between;text-transform:none}.switch-row input{width:auto}.active{margin-top:8px;padding:8px;text-align:center;border:1px solid #abefc6;border-radius:7px;background:#ecfdf3;color:#067647;font-weight:800}.diagnostics-card summary,.guide summary{padding:10px 12px;cursor:pointer;font-weight:700}.diagnostics-card #diagnostics{padding:10px 12px;border-top:1px solid var(--border);color:var(--muted);font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-line}#watchLog{max-height:220px;overflow-y:auto;padding:10px 12px;border-top:1px solid var(--border);background:#0b1220;color:#d1d5db;font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;word-break:break-word}.guide ol{padding:2px 16px 8px 32px}.notice{padding:12px}.offline{background:#fffaeb}.error{margin-top:10px;padding:9px;border:1px solid #fecdca;border-radius:7px;background:#fef3f2;color:var(--danger);font-size:11px}button{font:inherit;cursor:pointer}.text-button{border:0;background:none;color:var(--primary);font-size:11px}#candidates{display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:220px;overflow-y:auto;overflow-x:hidden}#candidates button{width:100%;max-width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;word-break:break-all;padding:8px 9px;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:11px;line-height:1.4}#candidates button:hover{background:var(--surface);border-color:var(--primary)}
+diff --git a/extension/popup.html b/extension/popup.html
+index 2d6f83c..d89962d 100644
+--- a/extension/popup.html
++++ b/extension/popup.html
+@@ -3,12 +3,12 @@
+ <head>
+   <meta charset="utf-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1">
+-  <title>D365 Local Override</title>
++  <title>PatchPilot</title>
+   <link rel="stylesheet" href="popup.css">
+ </head>
+ <body>
+ <main>
+-<header class="app-header"><img class="brand-icon" src="icons/icon48.png" alt="" width="42" height="42"><div><h1>D365 Local Override</h1><p>Develop PCF controls and form scripts locally</p></div><span class="version">v1.2.8</span></header>
++<header class="app-header"><img class="brand-icon" src="icons/icon48.png" alt="" width="42" height="42"><div><h1>PatchPilot</h1><p>Develop PCF controls and form scripts locally</p></div><span class="version">v1.2.8</span></header>
+ <div id="offline" class="notice offline hidden"><div class="notice-title">● Helper is offline</div>
+ <label for="launchType">Override type</label>
+ <select id="launchType"><option value="bundle">PCF bundle</option><option value="script">Model-Driven JavaScript</option><option value="html">Model-Driven HTML</option></select>
+diff --git a/extension/popup.js b/extension/popup.js
+index eaba100..182fec4 100644
+--- a/extension/popup.js
++++ b/extension/popup.js
+@@ -55,7 +55,7 @@ function render(){
+   $('autoReload').checked=state.config?.autoReload!==false;
+   $('active').classList.toggle('hidden',!state.connected);
+   renderStatus(state.status);
+-  chrome.tabs.query({active:true,currentWindow:true}).then(([tab])=>tab?.id&&chrome.tabs.sendMessage(tab.id,{active:state.connected}).catch(()=>{}));
++  chrome.tabs.query({active:true,currentWindow:true}).then(([tab])=>tab?.id&&chrome.tabs.sendMessage(tab.id,{active:state.connected,resourceType:state.resourceType}).catch(()=>{}));
+ }
+ 
+ async function initialize(){
+@@ -124,6 +124,7 @@ chrome.runtime.onMessage.addListener(message=>{
+   if(message.type==='status'&&message.stage==='stopped'){
+     clearInterval(timer);
+     $('online').classList.add('hidden');$('offline').classList.remove('hidden');
++    chrome.tabs.query({active:true,currentWindow:true}).then(([tab])=>tab?.id&&chrome.tabs.sendMessage(tab.id,{active:false}).catch(()=>{}));
+   }
+   if(message.type==='error'){
+     showNativeError(message.message);
+@@ -188,6 +189,13 @@ $('selectArtifact').onclick=async()=>{
+ };
+ 
+ // --- PCF build watch (npm run start:watch, automated instead of a manual terminal) ---
++// Strips ANSI escape sequences (color codes, cursor movement) from webpack's
++// terminal output - without this, raw escape bytes render as garbage
++// bracket characters in the log panel instead of being invisible.
++function stripAnsi(text){
++  return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g,'');
++}
++
+ let watchState={projectRoot:null,scripts:{},suggested:null,running:false,log:''};
+ 
+ function renderWatch(){
+@@ -210,7 +218,10 @@ function renderWatch(){
+     $('watchHint').textContent='Detected automatically once you detect a local file above.';
+   }
+ 
+-  $('watchLog').textContent=watchState.log?watchState.log.slice(-4000):'Not running';
++  const el=$('watchLog');
++  const wasAtBottom=el.scrollTop+el.clientHeight>=el.scrollHeight-4;
++  el.textContent=watchState.log?stripAnsi(watchState.log).slice(-4000):'Not running';
++  if(wasAtBottom)el.scrollTop=el.scrollHeight;
+ }
+ 
+ async function detectWatch(bundlePath){
+diff --git a/helper/native-host.js b/helper/native-host.js
+index d9133e2..47f3d77 100644
+--- a/helper/native-host.js
++++ b/helper/native-host.js
+@@ -13,6 +13,7 @@ import { encodeMessage, createDecoder } from './native-protocol.js';
+ console.log = (...args) => console.error(...args);
+ 
+ let controller = null;
++let server = null;
+ const watcher = new PcfWatcher();
+ 
+ const send = message => process.stdout.write(encodeMessage(message));
+@@ -26,6 +27,7 @@ async function handle(message) {
+       }
+       const result = await launch(message.options || {});
+       controller = result.controller;
++      server = result.server;
+       send({ type: 'status', stage: 'started', snapshot: controller.snapshot() });
+       return;
+     }
+@@ -37,6 +39,10 @@ async function handle(message) {
+       }
+       await controller.close();
+       controller = null;
++      if (server) {
++        await new Promise(resolve => server.close(resolve));
++        server = null;
++      }
+       send({ type: 'status', stage: 'stopped' });
+       return;
+     }
+@@ -124,5 +130,6 @@ process.stdin.on('data', createDecoder((message, error) => {
+ process.stdin.on('end', async () => {
+   await watcher.stop();
+   if (controller) await controller.close().catch(() => {});
++  if (server) await new Promise(resolve => server.close(resolve)).catch(() => {});
+   process.exit(0);
+ });
+diff --git a/helper/picker.js b/helper/picker.js
+index fa73b2f..f9f28fe 100644
+--- a/helper/picker.js
++++ b/helper/picker.js
+@@ -15,11 +15,22 @@ export function buildPickerCommand(platform, mode = 'folder', { title = 'Select
+ 
+   if (platform === 'win32') {
+     // -STA is required: the WinForms dialogs need a single-threaded apartment.
++    // Folder selection deliberately does NOT use FolderBrowserDialog - that's
++    // the old tree-view style dialog, unchanged since Windows 2000. Instead
++    // this uses the standard OpenFileDialog trick: disable file-existence
++    // checking and pre-fill a placeholder filename, so the user gets the
++    // same modern, searchable Explorer view as the file picker and just
++    // navigates into the target folder and clicks Open - the placeholder
++    // filename is never actually used, only its containing folder is.
+     const script = mode === 'folder'
+       ? `Add-Type -AssemblyName System.Windows.Forms;` +
+-        `$d = New-Object System.Windows.Forms.FolderBrowserDialog;` +
+-        `$d.Description = '${title.replace(/'/g, "''")}';` +
+-        `if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }`
++        `$d = New-Object System.Windows.Forms.OpenFileDialog;` +
++        `$d.Title = '${title.replace(/'/g, "''")}';` +
++        `$d.CheckFileExists = $false;` +
++        `$d.ValidateNames = $false;` +
++        `$d.FileName = 'Select this folder';` +
++        `$d.Filter = 'Folder selection|*.none';` +
++        `if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output (Split-Path $d.FileName -Parent) }`
+       : `Add-Type -AssemblyName System.Windows.Forms;` +
+         `$d = New-Object System.Windows.Forms.OpenFileDialog;` +
+         `$d.Title = '${title.replace(/'/g, "''")}';` +
+diff --git a/test/picker.test.js b/test/picker.test.js
+index 7b04a39..2c6020c 100644
+--- a/test/picker.test.js
++++ b/test/picker.test.js
+@@ -2,13 +2,15 @@ import test from 'node:test';
+ import assert from 'node:assert/strict';
+ import { buildPickerCommand, parsePickerOutput } from '../helper/picker.js';
+ 
+-test('builds a Windows folder picker in a single-threaded apartment', () => {
++test('builds a Windows folder picker using the modern Explorer-style dialog', () => {
+   const { command, args } = buildPickerCommand('win32', 'folder');
+   assert.equal(command, 'powershell');
+   assert.ok(args.includes('-STA'), 'WinForms dialogs require -STA or they never appear');
+   assert.ok(args.includes('-NoProfile'));
+-  assert.match(args.at(-1), /FolderBrowserDialog/);
+-  assert.match(args.at(-1), /SelectedPath/);
++  const script = args.at(-1);
++  assert.match(script, /OpenFileDialog/, 'should use OpenFileDialog, not the dated FolderBrowserDialog tree view');
++  assert.match(script, /CheckFileExists = \$false/);
++  assert.match(script, /Split-Path \$d\.FileName -Parent/, 'the selected folder is the placeholder filename\'s parent directory');
+ });
+ 
+ test('builds a Windows file picker filtered to web resource types', () => {

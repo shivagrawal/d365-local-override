@@ -2,13 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildPickerCommand, parsePickerOutput } from '../helper/picker.js';
 
-test('builds a Windows folder picker in a single-threaded apartment', () => {
+test('builds a Windows folder picker using the modern Explorer-style dialog', () => {
   const { command, args } = buildPickerCommand('win32', 'folder');
   assert.equal(command, 'powershell');
   assert.ok(args.includes('-STA'), 'WinForms dialogs require -STA or they never appear');
   assert.ok(args.includes('-NoProfile'));
-  assert.match(args.at(-1), /FolderBrowserDialog/);
-  assert.match(args.at(-1), /SelectedPath/);
+  const script = args.at(-1);
+  assert.match(script, /OpenFileDialog/, 'should use OpenFileDialog, not the dated FolderBrowserDialog tree view');
+  assert.match(script, /CheckFileExists = \$false/);
+  assert.match(script, /Split-Path \$d\.FileName -Parent/, 'the selected folder is the placeholder filename\'s parent directory');
 });
 
 test('builds a Windows file picker filtered to web resource types', () => {

@@ -15,11 +15,22 @@ export function buildPickerCommand(platform, mode = 'folder', { title = 'Select 
 
   if (platform === 'win32') {
     // -STA is required: the WinForms dialogs need a single-threaded apartment.
+    // Folder selection deliberately does NOT use FolderBrowserDialog - that's
+    // the old tree-view style dialog, unchanged since Windows 2000. Instead
+    // this uses the standard OpenFileDialog trick: disable file-existence
+    // checking and pre-fill a placeholder filename, so the user gets the
+    // same modern, searchable Explorer view as the file picker and just
+    // navigates into the target folder and clicks Open - the placeholder
+    // filename is never actually used, only its containing folder is.
     const script = mode === 'folder'
       ? `Add-Type -AssemblyName System.Windows.Forms;` +
-        `$d = New-Object System.Windows.Forms.FolderBrowserDialog;` +
-        `$d.Description = '${title.replace(/'/g, "''")}';` +
-        `if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }`
+        `$d = New-Object System.Windows.Forms.OpenFileDialog;` +
+        `$d.Title = '${title.replace(/'/g, "''")}';` +
+        `$d.CheckFileExists = $false;` +
+        `$d.ValidateNames = $false;` +
+        `$d.FileName = 'Select this folder';` +
+        `$d.Filter = 'Folder selection|*.none';` +
+        `if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output (Split-Path $d.FileName -Parent) }`
       : `Add-Type -AssemblyName System.Windows.Forms;` +
         `$d = New-Object System.Windows.Forms.OpenFileDialog;` +
         `$d.Title = '${title.replace(/'/g, "''")}';` +

@@ -2,9 +2,10 @@ chrome.runtime.onMessage.addListener(message => {
   const id = 'pcf-local-override-indicator';
   document.getElementById(id)?.remove();
   if (!message.active) return;
+  const labels = { pcf: 'LOCAL PCF', script: 'LOCAL JS', html: 'LOCAL HTML' };
   const b = document.createElement('button');
   b.id = id;
-  b.textContent = 'LOCAL PCF';
+  b.textContent = labels[message.resourceType] || 'LOCAL OVERRIDE';
   b.onclick = () => b.remove();
   Object.assign(b.style, {
     position: 'fixed', right: '12px', bottom: '12px', zIndex: 2147483647,
