@@ -45,12 +45,23 @@ test('rejects unsupported platforms and modes', () => {
   assert.throws(() => buildPickerCommand('win32', 'network-share'), /Unsupported picker mode/);
 });
 
-test('parsePickerOutput normalizes real selections', () => {
+test('parsePickerOutput normalizes a Windows-style selection', () => {
   assert.equal(parsePickerOutput('C:\\proj\\out\\MyControl\r\n'), 'C:\\proj\\out\\MyControl');
+});
+
+test('parsePickerOutput normalizes a POSIX-style selection', {
+  skip: process.platform === 'win32'
+    ? 'parsePickerOutput normalizes with the ambient platform path module, so POSIX-style input only has one correct answer on a POSIX host'
+    : false
+}, () => {
   assert.equal(parsePickerOutput('  /home/shiv/proj/out  '), '/home/shiv/proj/out');
 });
 
-test('parsePickerOutput strips the trailing separator macOS adds to folders', () => {
+test('parsePickerOutput strips the trailing separator macOS adds to folders', {
+  skip: process.platform === 'win32'
+    ? 'POSIX path semantics only, see note above'
+    : false
+}, () => {
   assert.equal(parsePickerOutput('/Users/shiv/proj/out/'), '/Users/shiv/proj/out');
 });
 
