@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PCF Local Override</title>
+  <title>D365 Local Override</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
 <main>
-<header class="app-header"><div class="brand-icon">PCF</div><div><h1>Local Override</h1><p>Develop PCF controls and form scripts locally</p></div><span class="version">v1.2.8</span></header>
+<header class="app-header"><img class="brand-icon" src="icons/icon48.png" alt="" width="42" height="42"><div><h1>D365 Local Override</h1><p>Develop PCF controls and form scripts locally</p></div><span class="version">v1.2.8</span></header>
 <div id="offline" class="notice offline hidden"><div class="notice-title">● Helper is offline</div>
 <label for="launchType">Override type</label>
 <select id="launchType"><option value="bundle">PCF bundle</option><option value="script">Model-Driven JavaScript</option><option value="html">Model-Driven HTML</option></select>
@@ -30,12 +30,12 @@
 <div class="connection-status">● Helper connected</div>
 <section class="card"><label>Project</label><div id="project" class="value-box"></div>
 <label>Dynamics tab</label><button id="refreshTabs" class="text-button">Refresh</button><select id="tab"></select>
-<label id="localFileLabel">Local bundle</label><select id="bundle"></select>
-<label for="artifactPath">Local bundle / script / HTML</label>
-<input id="artifactPath" class="path-input" type="text">
+<label for="artifactPath">Project folder or file to detect from</label>
+<p class="hint">Point this at your PCF project, a solution folder with multiple controls, or a specific file. We'll find the built bundle for you.</p>
+<input id="artifactPath" class="path-input" type="text" placeholder="C:\\path\\to\\out\\controls\\MyControl">
 <div class="command-row"><button id="browseFolder" class="secondary-button">Browse folder…</button><button id="browseFile" class="secondary-button">Browse file…</button></div>
-<button id="selectArtifact" class="secondary-button full-width">Use this local file</button>
-</section>
+<button id="selectArtifact" class="secondary-button full-width">Detect local file(s)</button>
+<label id="localFileLabel">Local bundle</label><p class="hint">If more than one was detected, choose the exact one this override should serve.</p><select id="bundle"></select></section>
 <section class="card"><label id="dynamicsResourceLabel">Dynamics bundle</label><div id="resource" class="value-box muted">Not configured</div><button id="scan" class="secondary-button full-width">Find Dynamics bundle</button><div id="candidates"></div>
 <label for="resourceUrl">Or paste the exact resource URL</label><input id="resourceUrl" class="path-input" type="url">
 <button id="useResourceUrl" class="secondary-button full-width">Use this resource URL</button></section>
@@ -46,12 +46,10 @@
 <details class="diagnostics-card"><summary>Diagnostics</summary><div id="diagnostics">Idle</div></details>
 </div>
 <details class="guide"><summary>How to run — step by step</summary><ol>
-<li><strong>Install helper</strong><p>Run <code>npm install -g .</code></p></li>
-<li><strong>Start PCF watcher</strong><p>Run <code>npm run start:watch</code></p></li>
-<li><strong>Launch development browser</strong><p>Run <code>pcf-local-override launch --bundle "C:\\path\\to\\bundle-folder"</code></p></li>
-<li><strong>Open Dynamics</strong><p>Use the development Chrome window.</p></li>
-<li><strong>Configure popup</strong><p>Select the Dynamics tab and local bundle, scan and select the resource.</p></li>
-<li><strong>Enable override</strong><p>Turn on Enable override.</p></li>
+<li><strong>Keep your PCF project building</strong><p>Run <code>npm run start:watch</code> in your control's own project folder, in its own terminal — same as always. This tool serves whatever is currently on disk; it doesn't build your control.</p></li>
+<li><strong>One-time helper setup</strong><p>Run <code>install-native-host.cmd &lt;extension-id&gt;</code> once from this repo (ID is on this extension's card at <code>chrome://extensions</code>). After this, "Start helper" below needs no terminal.</p></li>
+<li><strong>Open Dynamics, click this extension, click "Start helper"</strong></li>
+<li><strong>Detect and enable</strong><p>Browse to your control/solution folder, pick the exact bundle if more than one was found, scan for the matching Dynamics resource, then turn on Enable override.</p></li>
 </ol></details>
 <div id="error" class="error hidden"></div>
 </main>

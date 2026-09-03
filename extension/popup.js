@@ -82,14 +82,18 @@ $('startHelper').onclick=async()=>{
   showNativeError();
   const type=$('launchType').value;
   const value=$('bundleFolder').value.trim().replace(/^"|"$/g,'');
-  // A path is optional now: the helper can start bare and the artifact is selected afterwards.
+  // A path is optional now: the helper can start bare and the artifact is
+  // selected afterwards from the main panel.
   const options=value?{[type]:value}:{};
   $('startHelper').disabled=true;$('startHelper').textContent='Starting…';
   try{
     const response=await sendToNativeHost('start',options);
     if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
-  }catch(e){showNativeError(`${e.message} — see "Manual start" below if this is your first time.`)}
-  finally{$('startHelper').disabled=false;$('startHelper').textContent='Start helper';}
+  }catch(e){
+    showNativeError(`${e.message} — see "Manual start" below if this is your first time.`);
+  }finally{
+    $('startHelper').disabled=false;$('startHelper').textContent='Start helper';
+  }
 };
 
 $('stopHelper').onclick=async()=>{
@@ -105,15 +109,23 @@ chrome.runtime.onMessage.addListener(message=>{
     if(message.cancelled)return;
     $('artifactPath').value=message.path;
     $('bundleFolder').value=message.path;
-    if(message.applied&&message.snapshot){state=message.snapshot;render();showError();}
-    else if(message.message)showError(message.message);
+    if(message.applied&&message.snapshot){
+      state=message.snapshot;render();showError();
+    }else if(message.message){
+      showError(message.message);
+    }
     return;
   }
-  if(message.type==='status'&&message.stage==='started')setTimeout(()=>initialize().catch(()=>{}),500);
-  if(message.type==='status'&&message.stage==='stopped'){
-    clearInterval(timer);$('online').classList.add('hidden');$('offline').classList.remove('hidden');
+  if(message.type==='status'&&message.stage==='started'){
+    setTimeout(()=>initialize().catch(()=>{}),500);
   }
-  if(message.type==='error')showNativeError(message.message);
+  if(message.type==='status'&&message.stage==='stopped'){
+    clearInterval(timer);
+    $('online').classList.add('hidden');$('offline').classList.remove('hidden');
+  }
+  if(message.type==='error'){
+    showNativeError(message.message);
+  }
 });
 
 async function copyCommand(button,command){
@@ -139,8 +151,11 @@ async function browse(mode,targetInputId){
   }catch(e){
     const show=targetInputId==='bundleFolder'?showNativeError:showError;
     show(`${e.message} — paste the path manually instead.`);
-  }finally{button.disabled=false;button.textContent=original;}
+  }finally{
+    button.disabled=false;button.textContent=original;
+  }
 }
+
 $('browseFolder').onclick=()=>browse('folder','artifactPath');
 $('browseFile').onclick=()=>browse('file','artifactPath');
 $('browseStartFolder').onclick=()=>browse('folder','bundleFolder');
@@ -150,8 +165,10 @@ $('selectArtifact').onclick=async()=>{
   const value=$('artifactPath').value.trim().replace(/^"|"$/g,'');
   if(!value){showError('Enter or paste a local file or folder path.');return;}
   $('selectArtifact').disabled=true;
-  try{state=await api('/artifact',{path:value});render();}
-  catch(e){showError(e.message)}
+  try{
+    state=await api('/artifact',{path:value});
+    render();
+  }catch(e){showError(e.message)}
   finally{$('selectArtifact').disabled=false}
 };
 

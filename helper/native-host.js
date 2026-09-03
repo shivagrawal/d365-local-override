@@ -5,6 +5,7 @@
 // entirely for that framing, so anything launch()/close() would normally log
 // is redirected to stderr instead — Chrome ignores stderr, we don't need it.
 import { launch } from './main.js';
+import { pickPath } from './picker.js';
 import { encodeMessage, createDecoder } from './native-protocol.js';
 
 console.log = (...args) => console.error(...args);
@@ -34,6 +35,29 @@ async function handle(message) {
       await controller.close();
       controller = null;
       send({ type: 'status', stage: 'stopped' });
+      return;
+    }
+
+    if (message.type === 'pick') {
+      const chosen = await pickPath(message.mode || 'folder', { title: message.title });
+      if (!chosen) {
+        send({ type: 'picked', cancelled: true });
+        return;
+      }
+
+      // If the helper is already running, apply the selection in the same step
+      // so the developer does not have to confirm the path a second time.
+      if (controller) {
+        try {
+          const snapshot = await controller.setArtifact(chosen);
+          send({ type: 'picked', path: chosen, applied: true, snapshot });
+        } catch (error) {
+          send({ type: 'picked', path: chosen, applied: false, message: error.message });
+        }
+        return;
+      }
+
+      send({ type: 'picked', path: chosen, applied: false });
       return;
     }
 
