@@ -136,7 +136,8 @@ function render(){
   renderStatus(state.status);
   const activeTypes=new Set((state.rules||[]).map(r=>r.resourceType));
   const badgeType=activeTypes.size===1?[...activeTypes][0]:undefined;
-  chrome.tabs.query({active:true,currentWindow:true}).then(([tab])=>tab?.id&&chrome.tabs.sendMessage(tab.id,{active:state.connected,resourceType:badgeType}).catch(()=>{}));
+  const badgeTabId=state.rules?.[0]?.tabId;
+  if(badgeTabId)chrome.tabs.sendMessage(badgeTabId,{active:state.connected,resourceType:badgeType}).catch(()=>{});
 }
 
 async function initialize(){
@@ -208,7 +209,8 @@ chrome.runtime.onMessage.addListener(message=>{
   if(message.type==='status'&&message.stage==='stopped'){
     clearInterval(timer);
     $('online').classList.add('hidden');$('offline').classList.remove('hidden');
-    chrome.tabs.query({active:true,currentWindow:true}).then(([tab])=>tab?.id&&chrome.tabs.sendMessage(tab.id,{active:false}).catch(()=>{}));
+    const badgeTabId=state?.rules?.[0]?.tabId;
+    if(badgeTabId)chrome.tabs.sendMessage(badgeTabId,{active:false}).catch(()=>{});
   }
   if(message.type==='error'){
     showNativeError(message.message);

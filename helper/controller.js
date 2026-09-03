@@ -170,8 +170,11 @@ export class Controller {
     }
 
     if (this.rules.length && this.rules.some(existing => existing.tabId !== tabId)) {
-      const lockedHost = this.rules[0].dynamicsHostname;
-      throw new Error(`All overrides in one session must target the same Dynamics tab (currently ${lockedHost}). Remove existing overrides first to switch tabs.`);
+      // Re-point rather than reject. Closing and reopening the Dynamics tab
+      // is completely ordinary browser use - the old tabId these rules
+      // reference is simply gone, not evidence the developer deliberately
+      // switched to a second, unrelated tab. Assume continuity.
+      for (const existing of this.rules) existing.tabId = tabId;
     }
 
     if (this.rules.some(existing => existing.resourceUrl === resourceUrl)) {
@@ -248,6 +251,14 @@ export class Controller {
     await client.send('Fetch.enable', { patterns }, sessionId);
   }
 
+  /** Finds a currently open Dynamics tab matching a hostname, for recovering
+   * when the tab a session was pointed at has been closed. Returns the raw
+   * target (with webSocketDebuggerUrl), not the mapped dynamicsTabs() shape. */
+  async _findReplacementTab(hostname) {
+    const pages = (await targets(this.port)).filter(t => t.type === 'page' && isDynamicsUrl(t.url));
+    return pages.find(t => new URL(t.url).hostname === hostname) || pages[0] || null;
+  }
+
   async enable() {
     if (!this.rules.length) {
       throw new Error('Add at least one override rule first.');
@@ -255,8 +266,25 @@ export class Controller {
 
     await this.disable();
 
-    const tabId = this.rules[0].tabId;
-    const target = await this.target(tabId);
+    let tabId = this.rules[0].tabId;
+    let target;
+    try {
+      target = await this.target(tabId);
+    } catch {
+      // The tab these rules were pointed at is gone - closing and reopening
+      // the Dynamics tab is ordinary browser use, not something a developer
+      // should have to manually recover from. Look for another currently
+      // open Dynamics tab with the same hostname and re-point everything to it.
+      const replacement = await this._findReplacementTab(this.rules[0].dynamicsHostname);
+      if (!replacement) {
+        throw new Error('The Dynamics tab for these overrides was closed. Open Dynamics again, then try Enable overrides once more.');
+      }
+      tabId = replacement.id;
+      for (const rule of this.rules) rule.tabId = tabId;
+      await this.persist();
+      target = replacement;
+    }
+
     let client;
 
     try {

@@ -341,6 +341,71 @@ test('configure replaces the entire rule set rather than adding to it', async ()
   }
 });
 
+test('_findReplacementTab finds another open Dynamics tab matching the same hostname', async () => {
+  const { server, port } = await targetsServer([
+    { id: 'other-host', type: 'page', title: 'Different org', url: 'https://other-org.crm.dynamics.com/main.aspx' },
+    { id: 'match', type: 'page', title: 'Same org, different tab', url: 'https://org.crm4.dynamics.com/other.aspx' }
+  ]);
+
+  try {
+    const controller = new Controller({ root: '/tmp/p', port, bundles: [] });
+    const replacement = await controller._findReplacementTab('org.crm4.dynamics.com');
+    assert.equal(replacement.id, 'match');
+  } finally {
+    server.close();
+  }
+});
+
+test('_findReplacementTab falls back to any open Dynamics tab when no hostname match exists', async () => {
+  const { server, port } = await targetsServer([
+    { id: 'only-one', type: 'page', title: 'Some other Dynamics org', url: 'https://different-org.crm.dynamics.com/main.aspx' }
+  ]);
+
+  try {
+    const controller = new Controller({ root: '/tmp/p', port, bundles: [] });
+    const replacement = await controller._findReplacementTab('org.crm4.dynamics.com');
+    assert.equal(replacement.id, 'only-one');
+  } finally {
+    server.close();
+  }
+});
+
+test('_findReplacementTab returns null when no Dynamics tab is open at all', async () => {
+  const { server, port } = await targetsServer([]);
+  try {
+    const controller = new Controller({ root: '/tmp/p', port, bundles: [] });
+    assert.equal(await controller._findReplacementTab('org.crm4.dynamics.com'), null);
+  } finally {
+    server.close();
+  }
+});
+
+test('regression: enable() re-points rules to a replacement tab when the original was closed', async () => {
+  const { server, port } = await targetsServer([
+    { id: 'reopened', type: 'page', title: 'D365', url: 'https://org.crm4.dynamics.com/main.aspx',
+      webSocketDebuggerUrl: 'ws://127.0.0.1:1/devtools/page/reopened' }
+  ]);
+
+  try {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));
+    const controller = new Controller({
+      root, port, bundles: [],
+      rules: [ruleEntry({ id: 'r1', tabId: 'closed-tab-id', dynamicsHostname: 'org.crm4.dynamics.com' })]
+    });
+
+    // The stored tabId ('closed-tab-id') no longer exists in the mock target
+    // list, simulating the tab having been closed. enable() should recover
+    // by finding the reopened tab rather than simply failing.
+    await controller.enable().catch(() => {}); // the mock WebSocket URL can't actually complete a connection - only the recovery side effect is being verified here
+
+    assert.equal(controller.rules[0].tabId, 'reopened', 'the rule must be re-pointed to the replacement tab');
+
+    controller.stopWatcher?.();
+  } finally {
+    server.close();
+  }
+});
+
 test('enable refuses to attach with no rules configured', async () => {
   const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
   await assert.rejects(() => controller.enable(), /Add at least one override rule first/);
@@ -736,12 +801,17 @@ test('addRule rejects a duplicate Dynamics resource', async () => {
   }
 });
 
-test('addRule rejects a rule targeting a different tab than existing rules', async () => {
+test('regression: addRule re-points existing rules to a new tab instead of rejecting (the Dynamics tab was closed and reopened)', async () => {
+  // This used to throw "must target the same Dynamics tab". That was wrong:
+  // CDP target ids are stable across reloads, but closing and reopening the
+  // Dynamics tab is completely ordinary browser use and creates a genuinely
+  // new tab id. The old rule's tabId is just stale, not evidence of a
+  // deliberate second tab - re-point rather than block the developer.
   const { file } = await tempBundle('x', 'account-form.js');
   const { server, port } = await targetsServer([
-    { id: 'a', type: 'page', title: 'D365 A', url: 'https://org.crm4.dynamics.com/main.aspx',
+    { id: 'a', type: 'page', title: 'D365 (old tab)', url: 'https://org.crm4.dynamics.com/main.aspx',
       webSocketDebuggerUrl: 'ws://127.0.0.1/devtools/page/a' },
-    { id: 'b', type: 'page', title: 'D365 B', url: 'https://org.crm4.dynamics.com/other.aspx',
+    { id: 'b', type: 'page', title: 'D365 (reopened tab)', url: 'https://org.crm4.dynamics.com/other.aspx',
       webSocketDebuggerUrl: 'ws://127.0.0.1/devtools/page/b' }
   ]);
 
@@ -750,10 +820,10 @@ test('addRule rejects a rule targeting a different tab than existing rules', asy
     const controller = new Controller({ root, port, bundles: [file], resourceType: 'script' });
 
     await controller.addRule({ tabId: 'a', bundlePath: file, resourceUrl: 'https://org.crm4.dynamics.com/webresources/cc_a' });
-    await assert.rejects(
-      () => controller.addRule({ tabId: 'b', bundlePath: file, resourceUrl: 'https://org.crm4.dynamics.com/webresources/cc_b' }),
-      /must target the same Dynamics tab/
-    );
+    const snapshot = await controller.addRule({ tabId: 'b', bundlePath: file, resourceUrl: 'https://org.crm4.dynamics.com/webresources/cc_b' });
+
+    assert.equal(snapshot.rules.length, 2, 'both rules must exist, no rejection');
+    assert.ok(snapshot.rules.every(r => r.tabId === 'b'), 'the earlier rule must be re-pointed to the current tab, not left stale');
 
     controller.stopWatcher?.();
   } finally {
