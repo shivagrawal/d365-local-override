@@ -10,3 +10,4 @@ out/
 Thumbs.db
 .vscode/
 .idea/
+helper/native-host-manifest.json

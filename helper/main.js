@@ -7,6 +7,7 @@ import { startServer } from './server.js';
 
 export async function launch({ root, bundle, script, html, chromePort = 9222 } = {}) {
   let bundles;
+  const explicit = Boolean(html || script || bundle || root);
   const resourceType = html ? 'html' : script ? 'script' : 'pcf';
 
   if (html || script) {
@@ -22,7 +23,9 @@ export async function launch({ root, bundle, script, html, chromePort = 9222 } =
     bundles = await discoverBundles(root);
   }
 
-  if (!bundles.length) {
+  // Only hard-fail when the developer explicitly named an artifact or project root.
+  // A bare start is legitimate: the extension selects the artifact afterwards.
+  if (!bundles.length && explicit) {
     throw new Error(`No bundle.js found under out, dist, or build in:\n${root}\n\nPass an explicit path from any terminal:\npcf-local-override launch --bundle "C:\\path\\to\\bundle-folder"`);
   }
 
@@ -55,7 +58,11 @@ export async function launch({ root, bundle, script, html, chromePort = 9222 } =
       ? 'Model-Driven HTML'
       : 'PCF bundle';
 
-  console.log(`\nPCF Local Override helper\n  mode     ${modeLabel}\n  project  ${root}\n  Chrome   :${chromePort} (${chrome.reused ? 'reused' : 'launched'})\n  helper   http://${api.host}:${api.port}\n  ${localLabel}   ${bundles[0]}${bundles.length > 1 ? `\n  bundles  ${bundles.length}` : ''}\n\nOpen Dynamics in the development Chrome, then use the extension.`);
+  const artifactLine = bundles.length
+    ? `  ${localLabel}   ${bundles[0]}${bundles.length > 1 ? `\n  bundles  ${bundles.length}` : ''}`
+    : '  artifact none yet — select one from the extension';
+
+  console.log(`\nPCF Local Override helper\n  mode     ${modeLabel}\n  project  ${root}\n  Chrome   :${chromePort} (${chrome.reused ? 'reused' : 'launched'})\n  helper   http://${api.host}:${api.port}\n${artifactLine}\n\nOpen Dynamics in the development Chrome, then use the extension.`);
 
   const cleanup = async () => {
     await controller.close();

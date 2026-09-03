@@ -1,14 +1,15 @@
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { CdpClient, targets } from './cdp.js';
+import { resolveArtifact } from './bundles.js';
 import { createRule, interceptionPatterns, isCandidate, isDynamicsUrl, matchesRule } from '../shared/matcher.js';
 import { saveProject } from './config.js';
 import { stableRead, formatSize } from './utils.js';
 import { watchBundle } from './watcher.js';
 
 export class Controller {
-  constructor({ root, port, bundles, config, resourceType = 'pcf' }) {
-    Object.assign(this, { root, port, bundles, config, resourceType });
+  constructor({ root, port, bundles, config, resourceType = 'pcf', reloadSettleMs = 1200 }) {
+    Object.assign(this, { root, port, bundles, config, resourceType, reloadSettleMs });
     if (this.config) this.config.enabled = false;
     this.status = { stage: 'idle' };
   }
@@ -17,6 +18,41 @@ export class Controller {
     return (await targets(this.port))
       .filter(target => target.type === 'page' && isDynamicsUrl(target.url))
       .map(target => ({ id: target.id, title: target.title, url: target.url }));
+  }
+
+  /**
+   * Select the local artifact after startup, so the helper can be launched with
+   * nothing configured and the developer can pick a bundle from the extension.
+   * Replaces the discovered bundle list and derived resource type, and drops any
+   * previously configured rule that no longer applies to the new artifact.
+   */
+  async setArtifact(inputPath) {
+    if (!inputPath || typeof inputPath !== 'string' || !inputPath.trim()) {
+      throw new Error('Select a local bundle, JavaScript, or HTML file.');
+    }
+
+    const { bundles, resourceType } = await resolveArtifact(inputPath.trim());
+
+    await this.disable();
+    this.stopWatcher?.();
+    this.stopWatcher = undefined;
+
+    this.bundles = bundles;
+    this.resourceType = resourceType;
+    this.root = path.dirname(bundles[0]);
+
+    // A rule created for a different resource type or a file we no longer serve
+    // must not survive; it would silently intercept the wrong request.
+    if (this.config &&
+        ((this.config.resourceType || 'pcf') !== resourceType ||
+         !bundles.includes(path.resolve(this.config.bundlePath || '')))) {
+      this.config = null;
+    }
+
+    if (this.config?.bundlePath) this.startWatcher();
+
+    this.status = { stage: 'artifact-selected', at: Date.now(), count: bundles.length };
+    return this.snapshot();
   }
 
   async target(id) {
@@ -95,9 +131,10 @@ export class Controller {
         .toLowerCase()
         .replace(/\.(?:js|html?)$/, '');
 
-    const localName = comparableName(this.bundles[0]);
+    const localName = this.bundles.length ? comparableName(this.bundles[0]) : null;
 
     return [...found.values()].sort((left, right) => {
+      if (!localName) return 0;
       const leftName = comparableName(new URL(left.url).pathname);
       const rightName = comparableName(new URL(right.url).pathname);
 
@@ -107,6 +144,10 @@ export class Controller {
   }
 
   async configure({ tabId, bundlePath, resourceUrl, autoReload = true }) {
+    if (!this.bundles.length) {
+      throw new Error('Select a local bundle, JavaScript, or HTML file first.');
+    }
+
     const resolved = path.resolve(bundlePath);
     if (!this.bundles.includes(resolved)) {
       throw new Error('The selected local file was not discovered by this helper.');
@@ -378,21 +419,35 @@ export class Controller {
 
   startWatcher() {
     this.stopWatcher?.();
+    clearTimeout(this._reloadTimer);
 
     if (!this.config?.bundlePath ||
         !this.bundles.includes(path.resolve(this.config.bundlePath))) return;
 
-    this.stopWatcher = watchBundle(this.config.bundlePath, async ({ data }) => {
+    const stopFileWatch = watchBundle(this.config.bundlePath, async ({ data }) => {
       this.status = {
         stage: 'bundle-changed',
         at: Date.now(),
         size: data.length
       };
 
-      if (this.config.enabled && this.config.autoReload && this.client) {
-        await this.reload();
-      }
+      if (!(this.config.enabled && this.config.autoReload && this.client)) return;
+
+      // A single edit can produce several rapid recompiles (editor autosave,
+      // webpack's own multi-pass writes). Reload once after changes settle
+      // rather than once per intermediate rebuild.
+      clearTimeout(this._reloadTimer);
+      this._reloadTimer = setTimeout(() => {
+        this.reload().catch(error => {
+          this.status = { stage: 'error', message: error.message, at: Date.now() };
+        });
+      }, this.reloadSettleMs);
     });
+
+    this.stopWatcher = () => {
+      clearTimeout(this._reloadTimer);
+      stopFileWatch();
+    };
   }
 
   snapshot() {
@@ -403,7 +458,8 @@ export class Controller {
       config: this.config,
       status: this.status,
       connected: Boolean(this.client),
-      resourceType: this.resourceType
+      resourceType: this.resourceType,
+      hasArtifact: this.bundles.length > 0
     };
   }
 

@@ -47,6 +47,7 @@ export function startServer(controller) {
       else if (req.method === 'POST' && url.pathname === '/enable') result = await controller.enable();
       else if (req.method === 'POST' && url.pathname === '/disable') result = await controller.disable();
       else if (req.method === 'POST' && url.pathname === '/reload') result = await controller.reload(data.tabId);
+      else if (req.method === 'POST' && url.pathname === '/artifact') result = await controller.setArtifact(data.path);
       else if (req.method === 'POST' && url.pathname === '/auto-reload') result = await controller.setAutoReload(data.enabled);
       else return json(res, 404, { error: 'Not found.' }, origin);
 

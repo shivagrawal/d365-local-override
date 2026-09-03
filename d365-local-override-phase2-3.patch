@@ -1,0 +1,2001 @@
+diff --git a/.gitignore b/.gitignore
+index 9c3e5ed..ce2a33c 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -10,3 +10,4 @@ out/
+ Thumbs.db
+ .vscode/
+ .idea/
++helper/native-host-manifest.json
+diff --git a/extension/background.js b/extension/background.js
+new file mode 100644
+index 0000000..a58b736
+--- /dev/null
++++ b/extension/background.js
+@@ -0,0 +1,48 @@
++const HOST_NAME = 'com.pcf_local_override.native_host';
++
++let port = null;
++let lastMessage = { type: 'idle' };
++
++function broadcast(message) {
++  lastMessage = message;
++  // No popup may be listening right now; that's fine, it reads lastMessage on open.
++  chrome.runtime.sendMessage({ source: 'pcf-native-host', ...message }).catch(() => {});
++}
++
++function ensurePort() {
++  if (port) return port;
++
++  port = chrome.runtime.connectNative(HOST_NAME);
++
++  port.onMessage.addListener(message => broadcast(message));
++
++  port.onDisconnect.addListener(() => {
++    const reason = chrome.runtime.lastError?.message || 'Native host disconnected.';
++    port = null;
++    broadcast({ type: 'error', message: reason });
++  });
++
++  return port;
++}
++
++chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
++  if (message?.target !== 'pcf-native-host') return;
++
++  if (message.type === 'get-last') {
++    sendResponse(lastMessage);
++    return;
++  }
++
++  try {
++    ensurePort().postMessage({
++      type: message.type,
++      options: message.options,
++      mode: message.mode,
++      title: message.title
++    });
++    sendResponse({ ok: true });
++  } catch (error) {
++    port = null;
++    sendResponse({ ok: false, error: error.message });
++  }
++});
+diff --git a/extension/icons/icon128.png b/extension/icons/icon128.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..4c8dddf0e8e5b27db7470a209106fc59f9ea2fd5
+GIT binary patch
+literal 703
+zcmeAS@N?(olHy`uVBq!ia0vp^4Is?H1|$#LC7xzrU~2PpaSW-L^Y+rgKxRV`mWyYb
+zv;_+kZ7)6JIeJj!Mx4&<tMZ<A_h&Iph|7<@XluK_ZpXLKoibG~{TJ)J{qy?Le8>48
+z*4eduNsiTM`obJ*(DG$*%xyn)yMpKHb{W;`b_v`4{<L1NdZfRj`rY5ROKqFJ9KQ4M
+z$63ZD^3Q%fFn66$H{*48y>Zi*$1(MP?lN5JFE;(LTX2c|i&r0b6Bd0vu%AQWuSa-y
+zy`bZ-h3n+*GqA<6?qlTHrB%Z$Q84ufo577$A9)iNsD9Yb>|sA|pUA&*mY4hr`n~xK
+z1vShKkEI!8?lV02!NzdhoWWur<AIO741Ls<`p9_U<3+{}em;kq0)|J;%mVT<4L=?*
+z9ARfyu(M$Jc#zsspSxKV{z-JRDEza~=6CqBF-)rA$K$m+3?GljcrrZd-~EoU!~WYY
+zHidsbUW+ySC|={u@aX*Jx37<+=ULDFaYh!X`t#cj3`gb{w*!sX^Sc}<y|*4{<e%Gh
+z^M0(!1x8vnKagv+o8v(k%cJ$1SN{OXM&0Ip5C!CJwf}ftS)hKc>BIR<0`+@M**}y5
+z1$TdlR`#$zReEH<sN=7|bqw|TO~6E;_^*=XrTb2Xe=jff7dh5AOVr<e*qd-?>Lckx
+u7TpKqcYjF_m{wNz;?jJx+pA*i7<c`Am*t+j`U)^%GI+ZBxvX<aXaWFYzc~v4
+
+literal 0
+HcmV?d00001
+
+diff --git a/extension/icons/icon16.png b/extension/icons/icon16.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..968824432370d081c453d5f665453ea1b420f6a4
+GIT binary patch
+literal 149
+zcmeAS@N?(olHy`uVBq!ia0vp^0wB!61|;P_|4#%`F`h1tAr*6$p4rREpup2|F(>gg
+zi`ly8x2|<LDg29nba3i>Wuam_u_q?{tu^yB6~4C?bNwwyXn%Ns)45T)jxFwol*0$Z
+xhDW&$&C?si_!+t1HEz?_VV1ICsSt}`e6UhWclYcWGC+G6JYD@<);T3K0RYO(Gamo|
+
+literal 0
+HcmV?d00001
+
+diff --git a/extension/icons/icon32.png b/extension/icons/icon32.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..126c835bfb3b8efe37c1d37e1a9ce96dda6e6dc0
+GIT binary patch
+literal 218
+zcmeAS@N?(olHy`uVBq!ia0vp^3LwnE1|*BCs=ffJg`O^sAr*6uUb7ZzP~d4v%u9UD
+znX_l!^<~EvHhgrPav*P$@yh-CeK-zHEA>AySw?GB*TzGqV?OSw$T?~9pmR3cmJd=7
+zTCa2X&yl*&e3_}L(5r#1ojs#4;{XRAx5QCJM&lnP2XyR28xFKH2mA<N5DI5sP#DU<
+z{GKo2VJxH1AM=LZdbWrMNe!ZM(e(>0>v%UDiD$g_Ls#LvsDAO$n}(B$nI1RT`|<y}
+Rm<n_(gQu&X%Q~loCIDSmRFVJy
+
+literal 0
+HcmV?d00001
+
+diff --git a/extension/icons/icon48.png b/extension/icons/icon48.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..f06ff73d9b596089fb89a9e61242fb193692376c
+GIT binary patch
+literal 300
+zcmV+{0n`48P)<h;3K|Lk000e1NJLTq001xm001xu1^@s6R|5Hm0002<Nkl<Zc%0SP
+zI}U?D41{5BL7Nk#;d;3?H4()k60zX*YsMqF|Nhp~B;5R3w#<{dXuxhkXz1PTD~)d}
+zjqgUFkt6u^^WIA1+ffHR;i&^8c-jCd{s=&WwfG|fjke%v0<?IF01F--V8ufNJn*mp
+zFFYi`6Q3U7jZY1Tz^4U7;Zp)4@!<i{_|Sk1d{{shJ|rL$?;enicMU+`-2zZ}mjEQ*
+z9Dv4~0vPb>02aI|fC)bwz=j_RV8n|9Sn;9&X8ii}A1#6J1+e3911jLV0afrn0WG2|
+yeqSa0Wx#&~8aRwUN1%af{CQ}o8qN|Vb$tOhU%<tXo1O;%0000<MNUMnLSTY96nd%v
+
+literal 0
+HcmV?d00001
+
+diff --git a/extension/manifest.json b/extension/manifest.json
+index 6586b87..ebd37a2 100644
+--- a/extension/manifest.json
++++ b/extension/manifest.json
+@@ -1,10 +1,16 @@
+ {
+   "manifest_version": 3,
+-  "name": "PCF Local Override",
++  "name": "D365 Local Override",
+   "version": "1.2.8",
+-  "description": "Local overrides for PCF bundles and Model-Driven JavaScript and HTML web resources.",
+-  "permissions": ["activeTab", "storage", "tabs"],
++  "description": "Serve a local PCF bundle or Model-Driven JavaScript/HTML web resource into a running Dynamics 365 session, without redeploying.",
++  "permissions": ["activeTab", "storage", "tabs", "nativeMessaging"],
+   "host_permissions": ["http://127.0.0.1:32145/*", "https://*.dynamics.com/*"],
+-  "action": { "default_title": "PCF Local Override", "default_popup": "popup.html" },
++  "background": { "service_worker": "background.js" },
++  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
++  "action": {
++    "default_title": "D365 Local Override",
++    "default_popup": "popup.html",
++    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png" }
++  },
+   "content_scripts": [{ "matches": ["https://*.dynamics.com/*"], "js": ["indicator.js"], "run_at": "document_idle" }]
+ }
+diff --git a/extension/popup.css b/extension/popup.css
+index cc8987d..5311d6a 100644
+--- a/extension/popup.css
++++ b/extension/popup.css
+@@ -1 +1 @@
+-:root{color-scheme:light;--primary:#2563eb;--text:#172033;--muted:#667085;--border:#e4e7ec;--surface:#f8fafc;--success:#079455;--danger:#d92d20}*{box-sizing:border-box}body{margin:0;width:420px;max-height:600px;overflow-y:auto;background:#f5f7fb;color:var(--text);font:13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}main{padding:16px}.app-header{display:flex;align-items:center;gap:11px;margin-bottom:14px}.brand-icon{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:linear-gradient(145deg,#2563eb,#7c3aed);color:#fff;font-size:11px;font-weight:800}.app-header h1{margin:0;font-size:18px}.app-header p{margin:2px 0;color:var(--muted);font-size:11px}.version{margin-left:auto;padding:3px 7px;border-radius:20px;background:#e9efff;color:var(--primary);font-size:10px;font-weight:700}.hidden{display:none!important}.card,.guide,.diagnostics-card,.notice{margin-top:10px;border:1px solid var(--border);border-radius:10px;background:#fff;box-shadow:0 1px 2px #1018280d}.card{padding:12px}label{display:block;margin:9px 0 5px;color:#475467;font-size:11px;font-weight:700;text-transform:uppercase}.connection-status{color:var(--success);font-weight:700}.value-box{padding:8px 9px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-size:12px;overflow-wrap:anywhere}.muted{color:var(--muted)}select,.path-input{width:100%;min-height:36px;padding:7px 9px;border:1px solid #cbd2dc;border-radius:6px;background:#fff;color:var(--text);font:inherit}.command-row{display:flex;gap:5px;margin-top:7px}.command-row code{flex:1;padding:7px 8px;background:#f2f4f7;font:11px ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.primary-button,.secondary-button{min-height:36px;padding:8px 12px;border-radius:7px;margin-top:9px}.primary-button{border:1px solid var(--primary);background:var(--primary);color:#fff}.secondary-button{border:1px solid #cbd2dc;background:#fff;color:#344054}.full-width{width:100%}.switch-row{display:flex;align-items:center;justify-content:space-between;text-transform:none}.switch-row input{width:auto}.active{margin-top:8px;padding:8px;text-align:center;border:1px solid #abefc6;border-radius:7px;background:#ecfdf3;color:#067647;font-weight:800}.diagnostics-card summary,.guide summary{padding:10px 12px;cursor:pointer;font-weight:700}.diagnostics-card #diagnostics{padding:10px 12px;border-top:1px solid var(--border);color:var(--muted);font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-line}.guide ol{padding:2px 16px 8px 32px}.notice{padding:12px}.offline{background:#fffaeb}.error{margin-top:10px;padding:9px;border:1px solid #fecdca;border-radius:7px;background:#fef3f2;color:var(--danger);font-size:11px}button{font:inherit;cursor:pointer}.text-button{border:0;background:none;color:var(--primary);font-size:11px}
++:root{color-scheme:light;--primary:#2563eb;--text:#172033;--muted:#667085;--border:#e4e7ec;--surface:#f8fafc;--success:#079455;--danger:#d92d20}*{box-sizing:border-box}body{margin:0;width:420px;max-height:600px;overflow-y:auto;background:#f5f7fb;color:var(--text);font:13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}main{padding:16px}.app-header{display:flex;align-items:center;gap:11px;margin-bottom:14px}.brand-icon{display:block;width:42px;height:42px;border-radius:12px}.app-header h1{margin:0;font-size:18px}.app-header p{margin:2px 0;color:var(--muted);font-size:11px}.version{margin-left:auto;padding:3px 7px;border-radius:20px;background:#e9efff;color:var(--primary);font-size:10px;font-weight:700}.hidden{display:none!important}.card,.guide,.diagnostics-card,.notice{margin-top:10px;border:1px solid var(--border);border-radius:10px;background:#fff;box-shadow:0 1px 2px #1018280d}.card{padding:12px}label{display:block;margin:9px 0 5px;color:#475467;font-size:11px;font-weight:700;text-transform:uppercase}.hint{margin:0 0 7px;color:var(--muted);font-size:11px;text-transform:none;font-weight:400}.connection-status{color:var(--success);font-weight:700}.value-box{padding:8px 9px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-size:12px;overflow-wrap:anywhere}.muted{color:var(--muted)}select,.path-input{width:100%;min-height:36px;padding:7px 9px;border:1px solid #cbd2dc;border-radius:6px;background:#fff;color:var(--text);font:inherit}.command-row{display:flex;gap:5px;margin-top:7px}.command-row code{flex:1;padding:7px 8px;background:#f2f4f7;font:11px ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.primary-button,.secondary-button{min-height:36px;padding:8px 12px;border-radius:7px;margin-top:9px}.primary-button{border:1px solid var(--primary);background:var(--primary);color:#fff}.secondary-button{border:1px solid #cbd2dc;background:#fff;color:#344054}.full-width{width:100%}.switch-row{display:flex;align-items:center;justify-content:space-between;text-transform:none}.switch-row input{width:auto}.active{margin-top:8px;padding:8px;text-align:center;border:1px solid #abefc6;border-radius:7px;background:#ecfdf3;color:#067647;font-weight:800}.diagnostics-card summary,.guide summary{padding:10px 12px;cursor:pointer;font-weight:700}.diagnostics-card #diagnostics{padding:10px 12px;border-top:1px solid var(--border);color:var(--muted);font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-line}.guide ol{padding:2px 16px 8px 32px}.notice{padding:12px}.offline{background:#fffaeb}.error{margin-top:10px;padding:9px;border:1px solid #fecdca;border-radius:7px;background:#fef3f2;color:var(--danger);font-size:11px}button{font:inherit;cursor:pointer}.text-button{border:0;background:none;color:var(--primary);font-size:11px}#candidates{display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:220px;overflow-y:auto;overflow-x:hidden}#candidates button{width:100%;max-width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;word-break:break-all;padding:8px 9px;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:11px;line-height:1.4}#candidates button:hover{background:var(--surface);border-color:var(--primary)}
+diff --git a/extension/popup.html b/extension/popup.html
+index e482ac2..e65e685 100644
+--- a/extension/popup.html
++++ b/extension/popup.html
+@@ -3,40 +3,53 @@
+ <head>
+   <meta charset="utf-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1">
+-  <title>PCF Local Override</title>
++  <title>D365 Local Override</title>
+   <link rel="stylesheet" href="popup.css">
+ </head>
+ <body>
+ <main>
+-<header class="app-header"><div class="brand-icon">PCF</div><div><h1>Local Override</h1><p>Develop PCF controls and form scripts locally</p></div><span class="version">v1.2.8</span></header>
++<header class="app-header"><img class="brand-icon" src="icons/icon48.png" alt="" width="42" height="42"><div><h1>D365 Local Override</h1><p>Develop PCF controls and form scripts locally</p></div><span class="version">v1.2.8</span></header>
+ <div id="offline" class="notice offline hidden"><div class="notice-title">● Helper is offline</div>
+ <label for="launchType">Override type</label>
+ <select id="launchType"><option value="bundle">PCF bundle</option><option value="script">Model-Driven JavaScript</option><option value="html">Model-Driven HTML</option></select>
+ <p id="pathHelp">Paste the folder containing <code>bundle.js</code>.</p>
+ <label id="pathLabel" for="bundleFolder">Bundle folder or bundle.js path</label>
+ <input id="bundleFolder" class="path-input" type="text" placeholder="C:\\path\\to\\out\\controls\\MyControl">
++<button id="browseStartFolder" class="secondary-button full-width">Browse…</button>
++<button id="startHelper" class="primary-button full-width">Start helper</button>
++<div id="nativeError" class="error hidden"></div>
++<details class="guide">
++<summary>Manual start (first-time setup / fallback)</summary>
++<p>"Start helper" needs a one-time native messaging registration. Run once from the repo root, using the ID shown on this extension's card at <code>chrome://extensions</code>:</p>
++<div class="command-row"><code>install-native-host.cmd &lt;extension-id&gt;</code></div>
++<p>Or skip the extension entirely and start the helper from a terminal:</p>
+ <div class="command-row"><code id="launchCommand">pcf-local-override launch --bundle "C:\\path\\to\\bundle-folder"</code><button id="copy">Copy</button></div>
++</details>
+ </div>
+ <div id="online" class="hidden">
+ <div class="connection-status">● Helper connected</div>
+ <section class="card"><label>Project</label><div id="project" class="value-box"></div>
+ <label>Dynamics tab</label><button id="refreshTabs" class="text-button">Refresh</button><select id="tab"></select>
+-<label id="localFileLabel">Local bundle</label><select id="bundle"></select></section>
++<label for="artifactPath">Project folder or file to detect from</label>
++<p class="hint">Point this at your PCF project, a solution folder with multiple controls, or a specific file. We'll find the built bundle for you.</p>
++<input id="artifactPath" class="path-input" type="text" placeholder="C:\\path\\to\\out\\controls\\MyControl">
++<div class="command-row"><button id="browseFolder" class="secondary-button">Browse folder…</button><button id="browseFile" class="secondary-button">Browse file…</button></div>
++<button id="selectArtifact" class="secondary-button full-width">Detect local file(s)</button>
++<label id="localFileLabel">Local bundle</label><p class="hint">If more than one was detected, choose the exact one this override should serve.</p><select id="bundle"></select></section>
+ <section class="card"><label id="dynamicsResourceLabel">Dynamics bundle</label><div id="resource" class="value-box muted">Not configured</div><button id="scan" class="secondary-button full-width">Find Dynamics bundle</button><div id="candidates"></div>
+ <label for="resourceUrl">Or paste the exact resource URL</label><input id="resourceUrl" class="path-input" type="url">
+ <button id="useResourceUrl" class="secondary-button full-width">Use this resource URL</button></section>
+ <section class="card settings-card"><label class="switch-row">Enable override <input id="override" type="checkbox"></label><label class="switch-row">Auto reload <input id="autoReload" type="checkbox"></label></section>
+ <button id="reload" class="primary-button full-width">Reload Dynamics now</button>
++<button id="stopHelper" class="secondary-button full-width">Stop helper</button>
+ <div id="active" class="active hidden">Local override active</div>
+ <details class="diagnostics-card"><summary>Diagnostics</summary><div id="diagnostics">Idle</div></details>
+ </div>
+ <details class="guide"><summary>How to run — step by step</summary><ol>
+-<li><strong>Install helper</strong><p>Run <code>npm install -g .</code></p></li>
+-<li><strong>Start PCF watcher</strong><p>Run <code>npm run start:watch</code></p></li>
+-<li><strong>Launch development browser</strong><p>Run <code>pcf-local-override launch --bundle "C:\\path\\to\\bundle-folder"</code></p></li>
+-<li><strong>Open Dynamics</strong><p>Use the development Chrome window.</p></li>
+-<li><strong>Configure popup</strong><p>Select the Dynamics tab and local bundle, scan and select the resource.</p></li>
+-<li><strong>Enable override</strong><p>Turn on Enable override.</p></li>
++<li><strong>Keep your PCF project building</strong><p>Run <code>npm run start:watch</code> in your control's own project folder, in its own terminal — same as always. This tool serves whatever is currently on disk; it doesn't build your control.</p></li>
++<li><strong>One-time helper setup</strong><p>Run <code>install-native-host.cmd &lt;extension-id&gt;</code> once from this repo (ID is on this extension's card at <code>chrome://extensions</code>). After this, "Start helper" below needs no terminal.</p></li>
++<li><strong>Open Dynamics, click this extension, click "Start helper"</strong></li>
++<li><strong>Detect and enable</strong><p>Browse to your control/solution folder, pick the exact bundle if more than one was found, scan for the matching Dynamics resource, then turn on Enable override.</p></li>
+ </ol></details>
+ <div id="error" class="error hidden"></div>
+ </main>
+diff --git a/extension/popup.js b/extension/popup.js
+index 5bd425c..d8efced 100644
+--- a/extension/popup.js
++++ b/extension/popup.js
+@@ -44,7 +44,10 @@ function render(){
+   $('scan').textContent=html?'Find HTML web resource':script?'Find JavaScript web resource':'Find Dynamics bundle';
+   $('project').textContent=state.projectRoot;
+   $('bundle').replaceChildren(...state.bundles.map(v=>option(v,v.replace(`${state.projectRoot}\\`,''))));
++  if(!state.hasArtifact)$('bundle').append(option('','No local file selected yet'));
+   if(state.config?.bundlePath)$('bundle').value=state.config.bundlePath;
++  if(state.hasArtifact&&!$('artifactPath').value)$('artifactPath').value=state.bundles[0];
++  $('scan').disabled=!state.hasArtifact;
+   $('resource').textContent=state.config?.rule?new URL(state.config.rule.selectedUrl).pathname:'Not configured';
+   $('resource').classList.toggle('muted',!state.config?.rule);
+   if(!togglePending)$('override').checked=Boolean(state.connected);
+@@ -69,6 +72,62 @@ async function refreshStatus(){
+     $('override').disabled=togglePending;$('active').classList.toggle('hidden',!state.connected);
+   }catch{clearInterval(timer);$('offline').classList.remove('hidden');$('online').classList.add('hidden');}
+ }
++function showNativeError(message=''){ $('nativeError').textContent=message; $('nativeError').classList.toggle('hidden',!message); }
++
++async function sendToNativeHost(type,options,extra={}){
++  return chrome.runtime.sendMessage({target:'pcf-native-host',type,options,...extra});
++}
++
++$('startHelper').onclick=async()=>{
++  showNativeError();
++  const type=$('launchType').value;
++  const value=$('bundleFolder').value.trim().replace(/^"|"$/g,'');
++  // A path is optional now: the helper can start bare and the artifact is
++  // selected afterwards from the main panel.
++  const options=value?{[type]:value}:{};
++  $('startHelper').disabled=true;$('startHelper').textContent='Starting…';
++  try{
++    const response=await sendToNativeHost('start',options);
++    if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
++  }catch(e){
++    showNativeError(`${e.message} — see "Manual start" below if this is your first time.`);
++  }finally{
++    $('startHelper').disabled=false;$('startHelper').textContent='Start helper';
++  }
++};
++
++$('stopHelper').onclick=async()=>{
++  try{
++    const response=await sendToNativeHost('stop');
++    if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
++  }catch(e){showError(e.message)}
++};
++
++chrome.runtime.onMessage.addListener(message=>{
++  if(message?.source!=='pcf-native-host')return;
++  if(message.type==='picked'){
++    if(message.cancelled)return;
++    $('artifactPath').value=message.path;
++    $('bundleFolder').value=message.path;
++    if(message.applied&&message.snapshot){
++      state=message.snapshot;render();showError();
++    }else if(message.message){
++      showError(message.message);
++    }
++    return;
++  }
++  if(message.type==='status'&&message.stage==='started'){
++    setTimeout(()=>initialize().catch(()=>{}),500);
++  }
++  if(message.type==='status'&&message.stage==='stopped'){
++    clearInterval(timer);
++    $('online').classList.add('hidden');$('offline').classList.remove('hidden');
++  }
++  if(message.type==='error'){
++    showNativeError(message.message);
++  }
++});
++
+ async function copyCommand(button,command){
+   await navigator.clipboard.writeText(command);
+   const original=button.textContent;button.textContent='Copied!';setTimeout(()=>button.textContent=original,1200);
+@@ -82,6 +141,37 @@ $('launchType').onchange=updateLaunchCommand;$('bundleFolder').oninput=updateLau
+ $('copy').onclick=e=>copyCommand(e.currentTarget,$('launchCommand').textContent);
+ $('refreshTabs').onclick=()=>loadTabs().catch(e=>showError(e.message));
+ 
++async function browse(mode,targetInputId){
++  const button=targetInputId==='bundleFolder'?$('browseStartFolder'):(mode==='folder'?$('browseFolder'):$('browseFile'));
++  const original=button.textContent;
++  button.disabled=true;button.textContent='Opening…';
++  try{
++    const response=await sendToNativeHost('pick',undefined,{mode});
++    if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
++  }catch(e){
++    const show=targetInputId==='bundleFolder'?showNativeError:showError;
++    show(`${e.message} — paste the path manually instead.`);
++  }finally{
++    button.disabled=false;button.textContent=original;
++  }
++}
++
++$('browseFolder').onclick=()=>browse('folder','artifactPath');
++$('browseFile').onclick=()=>browse('file','artifactPath');
++$('browseStartFolder').onclick=()=>browse('folder','bundleFolder');
++
++$('selectArtifact').onclick=async()=>{
++  showError();
++  const value=$('artifactPath').value.trim().replace(/^"|"$/g,'');
++  if(!value){showError('Enter or paste a local file or folder path.');return;}
++  $('selectArtifact').disabled=true;
++  try{
++    state=await api('/artifact',{path:value});
++    render();
++  }catch(e){showError(e.message)}
++  finally{$('selectArtifact').disabled=false}
++};
++
+ $('scan').onclick=async()=>{
+   showError();$('candidates').textContent='Scanning…';
+   try{
+diff --git a/helper/bundles.js b/helper/bundles.js
+index 1e386fd..3f07c3c 100644
+--- a/helper/bundles.js
++++ b/helper/bundles.js
+@@ -13,10 +13,39 @@ async function walk(dir, depth, found) {
+   }
+ }
+ 
++const BUILD_FOLDER_NAMES = ['out', 'dist', 'build'];
++
++async function findBuildFolders(root, depth, found) {
++  if (depth < 0) return;
++  let entries;
++  try {
++    entries = await fs.readdir(root, { withFileTypes: true });
++  } catch (error) {
++    if (error.code === 'ENOENT') return;
++    throw error;
++  }
++
++  for (const entry of entries) {
++    if (!entry.isDirectory() || ['node_modules', '.git'].includes(entry.name)) continue;
++    const full = path.join(root, entry.name);
++    if (BUILD_FOLDER_NAMES.includes(entry.name)) {
++      found.add(full);
++      continue; // don't look for a build folder nested inside a build folder
++    }
++    await findBuildFolders(full, depth - 1, found);
++  }
++}
++
+ export async function discoverBundles(root) {
++  const buildFolders = new Set();
++  // Depth 4 covers root/out (a single-control project) as well as
++  // root/ControlA/out (a multi-control solution folder) without scanning an
++  // entire large repository.
++  await findBuildFolders(root, 4, buildFolders);
++
+   const found = [];
+-  for (const folder of ['out', 'dist', 'build']) {
+-    await walk(path.join(root, folder), 6, found).catch(error => {
++  for (const folder of buildFolders) {
++    await walk(folder, 6, found).catch(error => {
+       if (error.code !== 'ENOENT') throw error;
+     });
+   }
+@@ -40,6 +69,59 @@ async function resolveTypedFile(input, extension, option, label) {
+ export const resolveScript = input => resolveTypedFile(input, '.js', '--script', 'JavaScript');
+ export const resolveHtml = input => resolveTypedFile(input, '.html', '--html', 'HTML');
+ 
++/**
++ * Resolve an arbitrary user-chosen path (file or folder) and derive its resource type.
++ * Used when the artifact is selected at runtime from the extension rather than declared
++ * as a CLI flag up front. Returns { bundles, resourceType }.
++ *
++ * Folder  -> PCF bundle discovery (direct child bundle.js, else out/dist/build scan)
++ * *.html  -> html
++ * bundle(.min).js -> pcf
++ * other *.js -> script
++ */
++export async function resolveArtifact(input) {
++  const resolved = path.resolve(input);
++  let stat;
++  try {
++    stat = await fs.stat(resolved);
++  } catch (error) {
++    if (error.code === 'ENOENT') throw new Error(`Path does not exist:\n${resolved}`);
++    throw error;
++  }
++
++  if (stat.isDirectory()) {
++    const direct = (await fs.readdir(resolved, { withFileTypes: true }))
++      .filter(entry => entry.isFile() && isBundleName(entry.name))
++      .map(entry => path.join(resolved, entry.name));
++
++    if (direct.length > 1) {
++      throw new Error(`Multiple bundles found in ${resolved}. Select the exact bundle file.`);
++    }
++    if (direct.length === 1) return { bundles: direct, resourceType: 'pcf' };
++
++    const discovered = await discoverBundles(resolved);
++    if (!discovered.length) {
++      throw new Error(`No bundle.js found directly inside, or under out/dist/build of:\n${resolved}`);
++    }
++    return { bundles: discovered, resourceType: 'pcf' };
++  }
++
++  if (!stat.isFile()) throw new Error(`Path must be a file or folder:\n${resolved}`);
++
++  const extension = path.extname(resolved).toLowerCase();
++  if (extension === '.html' || extension === '.htm') {
++    return { bundles: [resolved], resourceType: 'html' };
++  }
++  if (extension === '.js') {
++    return {
++      bundles: [resolved],
++      resourceType: isBundleName(path.basename(resolved)) ? 'pcf' : 'script'
++    };
++  }
++
++  throw new Error(`Unsupported file type "${extension || 'none'}". Select a .js, .html, or PCF bundle folder:\n${resolved}`);
++}
++
+ export async function resolveBundle(input) {
+   const resolved = path.resolve(input);
+   let stat;
+diff --git a/helper/controller.js b/helper/controller.js
+index 3e07e46..b61d483 100644
+--- a/helper/controller.js
++++ b/helper/controller.js
+@@ -1,14 +1,15 @@
+ import path from 'node:path';
+ import { createHash } from 'node:crypto';
+ import { CdpClient, targets } from './cdp.js';
++import { resolveArtifact } from './bundles.js';
+ import { createRule, interceptionPatterns, isCandidate, isDynamicsUrl, matchesRule } from '../shared/matcher.js';
+ import { saveProject } from './config.js';
+ import { stableRead, formatSize } from './utils.js';
+ import { watchBundle } from './watcher.js';
+ 
+ export class Controller {
+-  constructor({ root, port, bundles, config, resourceType = 'pcf' }) {
+-    Object.assign(this, { root, port, bundles, config, resourceType });
++  constructor({ root, port, bundles, config, resourceType = 'pcf', reloadSettleMs = 1200 }) {
++    Object.assign(this, { root, port, bundles, config, resourceType, reloadSettleMs });
+     if (this.config) this.config.enabled = false;
+     this.status = { stage: 'idle' };
+   }
+@@ -19,6 +20,41 @@ export class Controller {
+       .map(target => ({ id: target.id, title: target.title, url: target.url }));
+   }
+ 
++  /**
++   * Select the local artifact after startup, so the helper can be launched with
++   * nothing configured and the developer can pick a bundle from the extension.
++   * Replaces the discovered bundle list and derived resource type, and drops any
++   * previously configured rule that no longer applies to the new artifact.
++   */
++  async setArtifact(inputPath) {
++    if (!inputPath || typeof inputPath !== 'string' || !inputPath.trim()) {
++      throw new Error('Select a local bundle, JavaScript, or HTML file.');
++    }
++
++    const { bundles, resourceType } = await resolveArtifact(inputPath.trim());
++
++    await this.disable();
++    this.stopWatcher?.();
++    this.stopWatcher = undefined;
++
++    this.bundles = bundles;
++    this.resourceType = resourceType;
++    this.root = path.dirname(bundles[0]);
++
++    // A rule created for a different resource type or a file we no longer serve
++    // must not survive; it would silently intercept the wrong request.
++    if (this.config &&
++        ((this.config.resourceType || 'pcf') !== resourceType ||
++         !bundles.includes(path.resolve(this.config.bundlePath || '')))) {
++      this.config = null;
++    }
++
++    if (this.config?.bundlePath) this.startWatcher();
++
++    this.status = { stage: 'artifact-selected', at: Date.now(), count: bundles.length };
++    return this.snapshot();
++  }
++
+   async target(id) {
+     const target = (await targets(this.port)).find(item => item.id === id);
+     if (!target) throw new Error('The selected Chrome tab is no longer available.');
+@@ -95,9 +131,10 @@ export class Controller {
+         .toLowerCase()
+         .replace(/\.(?:js|html?)$/, '');
+ 
+-    const localName = comparableName(this.bundles[0]);
++    const localName = this.bundles.length ? comparableName(this.bundles[0]) : null;
+ 
+     return [...found.values()].sort((left, right) => {
++      if (!localName) return 0;
+       const leftName = comparableName(new URL(left.url).pathname);
+       const rightName = comparableName(new URL(right.url).pathname);
+ 
+@@ -107,6 +144,10 @@ export class Controller {
+   }
+ 
+   async configure({ tabId, bundlePath, resourceUrl, autoReload = true }) {
++    if (!this.bundles.length) {
++      throw new Error('Select a local bundle, JavaScript, or HTML file first.');
++    }
++
+     const resolved = path.resolve(bundlePath);
+     if (!this.bundles.includes(resolved)) {
+       throw new Error('The selected local file was not discovered by this helper.');
+@@ -378,21 +419,35 @@ export class Controller {
+ 
+   startWatcher() {
+     this.stopWatcher?.();
++    clearTimeout(this._reloadTimer);
+ 
+     if (!this.config?.bundlePath ||
+         !this.bundles.includes(path.resolve(this.config.bundlePath))) return;
+ 
+-    this.stopWatcher = watchBundle(this.config.bundlePath, async ({ data }) => {
++    const stopFileWatch = watchBundle(this.config.bundlePath, async ({ data }) => {
+       this.status = {
+         stage: 'bundle-changed',
+         at: Date.now(),
+         size: data.length
+       };
+ 
+-      if (this.config.enabled && this.config.autoReload && this.client) {
+-        await this.reload();
+-      }
++      if (!(this.config.enabled && this.config.autoReload && this.client)) return;
++
++      // A single edit can produce several rapid recompiles (editor autosave,
++      // webpack's own multi-pass writes). Reload once after changes settle
++      // rather than once per intermediate rebuild.
++      clearTimeout(this._reloadTimer);
++      this._reloadTimer = setTimeout(() => {
++        this.reload().catch(error => {
++          this.status = { stage: 'error', message: error.message, at: Date.now() };
++        });
++      }, this.reloadSettleMs);
+     });
++
++    this.stopWatcher = () => {
++      clearTimeout(this._reloadTimer);
++      stopFileWatch();
++    };
+   }
+ 
+   snapshot() {
+@@ -403,7 +458,8 @@ export class Controller {
+       config: this.config,
+       status: this.status,
+       connected: Boolean(this.client),
+-      resourceType: this.resourceType
++      resourceType: this.resourceType,
++      hasArtifact: this.bundles.length > 0
+     };
+   }
+ 
+diff --git a/helper/main.js b/helper/main.js
+index d495e1f..e867b04 100644
+--- a/helper/main.js
++++ b/helper/main.js
+@@ -7,6 +7,7 @@ import { startServer } from './server.js';
+ 
+ export async function launch({ root, bundle, script, html, chromePort = 9222 } = {}) {
+   let bundles;
++  const explicit = Boolean(html || script || bundle || root);
+   const resourceType = html ? 'html' : script ? 'script' : 'pcf';
+ 
+   if (html || script) {
+@@ -22,7 +23,9 @@ export async function launch({ root, bundle, script, html, chromePort = 9222 } =
+     bundles = await discoverBundles(root);
+   }
+ 
+-  if (!bundles.length) {
++  // Only hard-fail when the developer explicitly named an artifact or project root.
++  // A bare start is legitimate: the extension selects the artifact afterwards.
++  if (!bundles.length && explicit) {
+     throw new Error(`No bundle.js found under out, dist, or build in:\n${root}\n\nPass an explicit path from any terminal:\npcf-local-override launch --bundle "C:\\path\\to\\bundle-folder"`);
+   }
+ 
+@@ -55,7 +58,11 @@ export async function launch({ root, bundle, script, html, chromePort = 9222 } =
+       ? 'Model-Driven HTML'
+       : 'PCF bundle';
+ 
+-  console.log(`\nPCF Local Override helper\n  mode     ${modeLabel}\n  project  ${root}\n  Chrome   :${chromePort} (${chrome.reused ? 'reused' : 'launched'})\n  helper   http://${api.host}:${api.port}\n  ${localLabel}   ${bundles[0]}${bundles.length > 1 ? `\n  bundles  ${bundles.length}` : ''}\n\nOpen Dynamics in the development Chrome, then use the extension.`);
++  const artifactLine = bundles.length
++    ? `  ${localLabel}   ${bundles[0]}${bundles.length > 1 ? `\n  bundles  ${bundles.length}` : ''}`
++    : '  artifact none yet — select one from the extension';
++
++  console.log(`\nPCF Local Override helper\n  mode     ${modeLabel}\n  project  ${root}\n  Chrome   :${chromePort} (${chrome.reused ? 'reused' : 'launched'})\n  helper   http://${api.host}:${api.port}\n${artifactLine}\n\nOpen Dynamics in the development Chrome, then use the extension.`);
+ 
+   const cleanup = async () => {
+     await controller.close();
+diff --git a/helper/native-host-manifest.template.json b/helper/native-host-manifest.template.json
+new file mode 100644
+index 0000000..9e4f38d
+--- /dev/null
++++ b/helper/native-host-manifest.template.json
+@@ -0,0 +1,7 @@
++{
++  "name": "com.pcf_local_override.native_host",
++  "description": "Starts and stops the PCF Local Override helper process.",
++  "path": "__NATIVE_HOST_CMD_PATH__",
++  "type": "stdio",
++  "allowed_origins": ["chrome-extension://__EXTENSION_ID__/"]
++}
+diff --git a/helper/native-host.cmd b/helper/native-host.cmd
+new file mode 100644
+index 0000000..84fcc2f
+--- /dev/null
++++ b/helper/native-host.cmd
+@@ -0,0 +1,2 @@
++@echo off
++node "%~dp0native-host.js"
+diff --git a/helper/native-host.js b/helper/native-host.js
+new file mode 100644
+index 0000000..5e8d0b4
+--- /dev/null
++++ b/helper/native-host.js
+@@ -0,0 +1,90 @@
++#!/usr/bin/env node
++// Chrome-spawned native messaging host. Chrome launches this process when the
++// extension calls chrome.runtime.connectNative and pipes JSON messages over
++// stdin/stdout using the framing in native-protocol.js. stdout is reserved
++// entirely for that framing, so anything launch()/close() would normally log
++// is redirected to stderr instead — Chrome ignores stderr, we don't need it.
++import { launch } from './main.js';
++import { pickPath } from './picker.js';
++import { encodeMessage, createDecoder } from './native-protocol.js';
++
++console.log = (...args) => console.error(...args);
++
++let controller = null;
++
++const send = message => process.stdout.write(encodeMessage(message));
++
++async function handle(message) {
++  try {
++    if (message.type === 'start') {
++      if (controller) {
++        send({ type: 'status', stage: 'already-running', snapshot: controller.snapshot() });
++        return;
++      }
++      const result = await launch(message.options || {});
++      controller = result.controller;
++      send({ type: 'status', stage: 'started', snapshot: controller.snapshot() });
++      return;
++    }
++
++    if (message.type === 'stop') {
++      if (!controller) {
++        send({ type: 'status', stage: 'not-running' });
++        return;
++      }
++      await controller.close();
++      controller = null;
++      send({ type: 'status', stage: 'stopped' });
++      return;
++    }
++
++    if (message.type === 'pick') {
++      const chosen = await pickPath(message.mode || 'folder', { title: message.title });
++      if (!chosen) {
++        send({ type: 'picked', cancelled: true });
++        return;
++      }
++
++      // If the helper is already running, apply the selection in the same step
++      // so the developer does not have to confirm the path a second time.
++      if (controller) {
++        try {
++          const snapshot = await controller.setArtifact(chosen);
++          send({ type: 'picked', path: chosen, applied: true, snapshot });
++        } catch (error) {
++          send({ type: 'picked', path: chosen, applied: false, message: error.message });
++        }
++        return;
++      }
++
++      send({ type: 'picked', path: chosen, applied: false });
++      return;
++    }
++
++    if (message.type === 'ping') {
++      send({ type: 'pong', running: Boolean(controller) });
++      return;
++    }
++
++    send({ type: 'error', message: `Unknown message type: ${message.type}` });
++  } catch (error) {
++    controller = null;
++    send({ type: 'error', message: error.message });
++  }
++}
++
++process.stdin.on('data', createDecoder((message, error) => {
++  if (error) {
++    send({ type: 'error', message: `Malformed message: ${error.message}` });
++    return;
++  }
++  void handle(message);
++}));
++
++// Chrome closes stdin when the extension's native port disconnects
++// (background service worker unloaded, extension disabled/removed, browser
++// closing). Stop the helper cleanly rather than leaving Chrome/CDP attached.
++process.stdin.on('end', async () => {
++  if (controller) await controller.close().catch(() => {});
++  process.exit(0);
++});
+diff --git a/helper/native-protocol.js b/helper/native-protocol.js
+new file mode 100644
+index 0000000..1939bb1
+--- /dev/null
++++ b/helper/native-protocol.js
+@@ -0,0 +1,37 @@
++// Chrome native messaging framing: each message is a 4-byte little-endian
++// length prefix followed by that many bytes of UTF-8 JSON.
++// https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging
++
++export function encodeMessage(message) {
++  const json = Buffer.from(JSON.stringify(message), 'utf8');
++  const header = Buffer.alloc(4);
++  header.writeUInt32LE(json.length, 0);
++  return Buffer.concat([header, json]);
++}
++
++/**
++ * Returns a function you feed raw stdin chunks into. Calls `onMessage(value, error)`
++ * once per complete frame: `value` set on success, `error` set (value undefined) if a
++ * frame's body isn't valid JSON. Buffers partial frames across chunks.
++ */
++export function createDecoder(onMessage) {
++  let buffer = Buffer.alloc(0);
++
++  return chunk => {
++    buffer = Buffer.concat([buffer, chunk]);
++
++    while (buffer.length >= 4) {
++      const length = buffer.readUInt32LE(0);
++      if (buffer.length < 4 + length) return;
++
++      const body = buffer.subarray(4, 4 + length);
++      buffer = buffer.subarray(4 + length);
++
++      try {
++        onMessage(JSON.parse(body.toString('utf8')));
++      } catch (error) {
++        onMessage(undefined, error);
++      }
++    }
++  };
++}
+diff --git a/helper/picker.js b/helper/picker.js
+new file mode 100644
+index 0000000..fa73b2f
+--- /dev/null
++++ b/helper/picker.js
+@@ -0,0 +1,88 @@
++import { execFile } from 'node:child_process';
++import path from 'node:path';
++
++/**
++ * Build the OS-native picker invocation. Kept pure and separate from spawning so
++ * the per-platform command shapes can be unit tested without opening a dialog.
++ *
++ * mode: 'folder' (PCF bundle output folder) | 'file' (bundle.js / form script / HTML)
++ * Returns { command, args } or throws for unsupported platforms.
++ */
++export function buildPickerCommand(platform, mode = 'folder', { title = 'Select local resource' } = {}) {
++  if (!['folder', 'file'].includes(mode)) {
++    throw new Error(`Unsupported picker mode: ${mode}`);
++  }
++
++  if (platform === 'win32') {
++    // -STA is required: the WinForms dialogs need a single-threaded apartment.
++    const script = mode === 'folder'
++      ? `Add-Type -AssemblyName System.Windows.Forms;` +
++        `$d = New-Object System.Windows.Forms.FolderBrowserDialog;` +
++        `$d.Description = '${title.replace(/'/g, "''")}';` +
++        `if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }`
++      : `Add-Type -AssemblyName System.Windows.Forms;` +
++        `$d = New-Object System.Windows.Forms.OpenFileDialog;` +
++        `$d.Title = '${title.replace(/'/g, "''")}';` +
++        `$d.Filter = 'Web resources (*.js;*.html;*.htm)|*.js;*.html;*.htm|All files (*.*)|*.*';` +
++        `if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.FileName }`;
++
++    return { command: 'powershell', args: ['-NoProfile', '-STA', '-Command', script] };
++  }
++
++  if (platform === 'darwin') {
++    const chooser = mode === 'folder' ? 'choose folder' : 'choose file';
++    return {
++      command: 'osascript',
++      args: ['-e', `POSIX path of (${chooser} with prompt "${title.replace(/"/g, '\\"')}")`]
++    };
++  }
++
++  if (platform === 'linux') {
++    const args = ['--file-selection', `--title=${title}`];
++    if (mode === 'folder') args.push('--directory');
++    return { command: 'zenity', args };
++  }
++
++  throw new Error(`Native file picker is not supported on platform "${platform}".`);
++}
++
++/**
++ * Normalize picker stdout. Returns an absolute path, or null when the user
++ * cancelled (dialogs exit with empty output on cancel).
++ */
++export function parsePickerOutput(stdout) {
++  const value = String(stdout ?? '').replace(/\r/g, '').trim();
++  if (!value) return null;
++
++  // macOS `POSIX path of` appends a trailing separator to folders.
++  const trimmed = value.length > 1 && value.endsWith('/') ? value.slice(0, -1) : value;
++  return path.normalize(trimmed);
++}
++
++/**
++ * Open the OS picker and resolve to the chosen absolute path, or null if cancelled.
++ */
++export function pickPath(mode = 'folder', options = {}) {
++  const { command, args } = buildPickerCommand(process.platform, mode, options);
++
++  return new Promise((resolve, reject) => {
++    execFile(command, args, { windowsHide: false, timeout: 300000 }, (error, stdout) => {
++      const chosen = parsePickerOutput(stdout);
++
++      // Cancel is reported as a non-zero exit by osascript/zenity; treat an
++      // empty selection as a cancellation rather than a failure.
++      if (error && !chosen) {
++        if (error.code === 'ENOENT') {
++          return reject(new Error(
++            command === 'zenity'
++              ? 'zenity is required for the file picker on Linux.'
++              : `Picker command "${command}" was not found.`
++          ));
++        }
++        return resolve(null);
++      }
++
++      resolve(chosen);
++    });
++  });
++}
+diff --git a/helper/server.js b/helper/server.js
+index 2baa4f4..664adfd 100644
+--- a/helper/server.js
++++ b/helper/server.js
+@@ -47,6 +47,7 @@ export function startServer(controller) {
+       else if (req.method === 'POST' && url.pathname === '/enable') result = await controller.enable();
+       else if (req.method === 'POST' && url.pathname === '/disable') result = await controller.disable();
+       else if (req.method === 'POST' && url.pathname === '/reload') result = await controller.reload(data.tabId);
++      else if (req.method === 'POST' && url.pathname === '/artifact') result = await controller.setArtifact(data.path);
+       else if (req.method === 'POST' && url.pathname === '/auto-reload') result = await controller.setAutoReload(data.enabled);
+       else return json(res, 404, { error: 'Not found.' }, origin);
+ 
+diff --git a/helper/watcher.js b/helper/watcher.js
+index 7812782..0daca45 100644
+--- a/helper/watcher.js
++++ b/helper/watcher.js
+@@ -5,9 +5,6 @@ import { stableRead } from './utils.js';
+ 
+ export function watchBundle(file, onChange) {
+   let timer, hash;
+-  stableRead(file)
+-    .then(({ data }) => hash = createHash('sha256').update(data).digest('hex'))
+-    .catch(() => {});
+ 
+   const watcher = fs.watch(path.dirname(file), (_e, name) => {
+     if (name && name.toString() !== path.basename(file)) return;
+@@ -26,6 +23,21 @@ export function watchBundle(file, onChange) {
+     }, 250);
+   });
+ 
++  // Seed synchronously, immediately after registering the watch, so no write
++  // issued by the caller right after this call returns can possibly complete
++  // before the seed does. Two independent async fs operations (an async seed
++  // read racing a near-simultaneous write) have no guaranteed completion
++  // order - either can "win", and if the write wins, the seed captures the
++  // NEW content, making the very next real change look identical to the
++  // seed and silently swallowing it. A synchronous read has no such race:
++  // nothing else runs on this thread between fs.watch() returning and this
++  // line executing.
++  try {
++    hash = createHash('sha256').update(fs.readFileSync(file)).digest('hex');
++  } catch {
++    hash = null; // file may not exist yet; the first real write will seed it via the watch callback
++  }
++
+   return () => {
+     clearTimeout(timer);
+     watcher.close();
+diff --git a/install-native-host.cmd b/install-native-host.cmd
+new file mode 100644
+index 0000000..112133e
+--- /dev/null
++++ b/install-native-host.cmd
+@@ -0,0 +1,46 @@
++@echo off
++setlocal
++
++if "%~1"=="" (
++  echo Usage: install-native-host.cmd ^<chrome-extension-id^>
++  echo.
++  echo 1. Open chrome://extensions
++  echo 2. Enable Developer mode
++  echo 3. Load unpacked -^> select the "extension" folder in this repo
++  echo 4. Copy the ID shown on the extension's card and pass it here
++  exit /b 1
++)
++
++set "EXT_ID=%~1"
++set "HOST_DIR=%~dp0helper"
++set "TEMPLATE=%HOST_DIR%\native-host-manifest.template.json"
++set "MANIFEST=%HOST_DIR%\native-host-manifest.json"
++set "CMD_PATH=%HOST_DIR%\native-host.cmd"
++
++if not exist "%TEMPLATE%" (
++  echo ERROR: Template not found: %TEMPLATE%
++  exit /b 1
++)
++
++powershell -NoProfile -Command ^
++  "$cmdPath = '%CMD_PATH%' -replace '\\', '\\\\';" ^
++  "(Get-Content -Raw '%TEMPLATE%')" ^
++  " -replace '__NATIVE_HOST_CMD_PATH__', $cmdPath" ^
++  " -replace '__EXTENSION_ID__', '%EXT_ID%'" ^
++  " | Set-Content -NoNewline '%MANIFEST%'"
++if errorlevel 1 (
++  echo ERROR: Failed to generate manifest.
++  exit /b 1
++)
++
++reg add "HKCU\Software\Google\Chrome\NativeMessagingHosts\com.pcf_local_override.native_host" /ve /d "%MANIFEST%" /f
++if errorlevel 1 (
++  echo ERROR: Failed to register native messaging host in the registry.
++  exit /b 1
++)
++
++echo.
++echo Registered native messaging host for extension %EXT_ID%.
++echo Manifest written to: %MANIFEST%
++echo Reload the extension at chrome://extensions, then use "Start helper" in the popup.
++exit /b 0
+diff --git a/scripts/generate-icons.mjs b/scripts/generate-icons.mjs
+new file mode 100644
+index 0000000..eaf161d
+--- /dev/null
++++ b/scripts/generate-icons.mjs
+@@ -0,0 +1,107 @@
++// One-off icon generator, not part of the runtime. Produces the extension's
++// PNG icon set with zero dependencies (Node's built-in zlib for PNG's DEFLATE
++// requirement), consistent with the rest of this project having none.
++//
++// Design: a rounded square split diagonally - navy (top-right, "the Dynamics
++// resource") and accent orange (bottom-left, "the local override"), divided
++// by a thin white seam. Reads clearly at 16px and scales cleanly to 128px.
++import fs from 'node:fs';
++import path from 'node:path';
++import zlib from 'node:zlib';
++import { fileURLToPath } from 'node:url';
++
++const NAVY = [0x17, 0x20, 0x33];
++const ORANGE = [0xf5, 0x7c, 0x2e];
++const SEAM = [0xff, 0xff, 0xff];
++
++function crc32(buf) {
++  let table = crc32.table;
++  if (!table) {
++    table = crc32.table = new Int32Array(256);
++    for (let n = 0; n < 256; n++) {
++      let c = n;
++      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
++      table[n] = c;
++    }
++  }
++  let crc = 0xffffffff;
++  for (const byte of buf) crc = table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
++  return (crc ^ 0xffffffff) >>> 0;
++}
++
++function chunk(type, data) {
++  const typeBuf = Buffer.from(type, 'ascii');
++  const lenBuf = Buffer.alloc(4);
++  lenBuf.writeUInt32BE(data.length, 0);
++  const crcBuf = Buffer.alloc(4);
++  crcBuf.writeUInt32BE(crc32(Buffer.concat([typeBuf, data])), 0);
++  return Buffer.concat([lenBuf, typeBuf, data, crcBuf]);
++}
++
++function cornerRadius(size) {
++  return Math.round(size * 0.2);
++}
++
++function insideRoundedSquare(x, y, size, radius) {
++  const cx = Math.min(x, size - 1 - x);
++  const cy = Math.min(y, size - 1 - y);
++  if (cx >= radius || cy >= radius) return true;
++  const dx = radius - cx;
++  const dy = radius - cy;
++  return dx * dx + dy * dy <= radius * radius;
++}
++
++function pixelColor(x, y, size) {
++  const radius = cornerRadius(size);
++  if (!insideRoundedSquare(x, y, size, radius)) return null;
++
++  const seamWidth = Math.max(1, Math.round(size / 24));
++  const diagonal = x + y - (size - 1);
++  if (Math.abs(diagonal) <= seamWidth) return SEAM;
++  return diagonal < 0 ? NAVY : ORANGE;
++}
++
++function buildPng(size) {
++  const raw = Buffer.alloc((size * 4 + 1) * size);
++  let offset = 0;
++  for (let y = 0; y < size; y++) {
++    raw[offset++] = 0; // filter type: none
++    for (let x = 0; x < size; x++) {
++      const color = pixelColor(x, y, size);
++      if (color) {
++        raw[offset++] = color[0];
++        raw[offset++] = color[1];
++        raw[offset++] = color[2];
++        raw[offset++] = 255;
++      } else {
++        offset += 4; // fully transparent (zero-initialized) outside the rounded square
++      }
++    }
++  }
++
++  const ihdr = Buffer.alloc(13);
++  ihdr.writeUInt32BE(size, 0);
++  ihdr.writeUInt32BE(size, 4);
++  ihdr[8] = 8;  // bit depth
++  ihdr[9] = 6;  // color type: RGBA
++  ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
++
++  const idat = zlib.deflateSync(raw);
++  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
++
++  return Buffer.concat([
++    signature,
++    chunk('IHDR', ihdr),
++    chunk('IDAT', idat),
++    chunk('IEND', Buffer.alloc(0))
++  ]);
++}
++
++const outDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'extension', 'icons');
++fs.mkdirSync(outDir, { recursive: true });
++
++for (const size of [16, 32, 48, 128]) {
++  fs.writeFileSync(path.join(outDir, `icon${size}.png`), buildPng(size));
++}
++
++console.log(`Wrote icon16/32/48/128.png to ${outDir}`);
+diff --git a/test/cli.test.js b/test/cli.test.js
+index deb4be6..11d2241 100644
+--- a/test/cli.test.js
++++ b/test/cli.test.js
+@@ -4,7 +4,93 @@ import fs from 'node:fs/promises';
+ import os from 'node:os';
+ import path from 'node:path';
+ import { parseLaunchArgs } from '../helper/cli.js';
+-import { resolveBundle, resolveHtml, resolveScript } from '../helper/bundles.js';
++import { discoverBundles, resolveArtifact, resolveBundle, resolveHtml, resolveScript } from '../helper/bundles.js';
++
++test('resolveArtifact derives type from the selected path', async () => {
++  const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-artifact-'));
++
++  const bundle = path.join(folder, 'bundle.js');
++  await fs.writeFile(bundle, 'b');
++  assert.deepEqual(await resolveArtifact(bundle), { bundles: [bundle], resourceType: 'pcf' });
++  assert.deepEqual(await resolveArtifact(folder), { bundles: [bundle], resourceType: 'pcf' });
++
++  const scriptFolder = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-artifact-'));
++  const script = path.join(scriptFolder, 'account-form.js');
++  await fs.writeFile(script, 'f');
++  assert.deepEqual(await resolveArtifact(script), { bundles: [script], resourceType: 'script' });
++
++  const html = path.join(scriptFolder, 'dialog.html');
++  await fs.writeFile(html, '<h1>x</h1>');
++  assert.deepEqual(await resolveArtifact(html), { bundles: [html], resourceType: 'html' });
++
++  await fs.rm(folder, { recursive: true, force: true });
++  await fs.rm(scriptFolder, { recursive: true, force: true });
++});
++
++test('resolveArtifact finds bundles under out/dist/build of a project folder', async () => {
++  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-project-'));
++  const nested = path.join(root, 'out', 'controls', 'MyControl');
++  await fs.mkdir(nested, { recursive: true });
++  const bundle = path.join(nested, 'bundle.js');
++  await fs.writeFile(bundle, 'b');
++
++  assert.deepEqual(await resolveArtifact(root), { bundles: [bundle], resourceType: 'pcf' });
++  await fs.rm(root, { recursive: true, force: true });
++});
++
++test('discoverBundles finds a control nested one level below the given root (monorepo layout)', async () => {
++  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-monorepo-'));
++  const nested = path.join(root, 'ControlProject', 'out', 'controls', 'MyControl');
++  await fs.mkdir(nested, { recursive: true });
++  const bundle = path.join(nested, 'bundle.js');
++  await fs.writeFile(bundle, 'b');
++
++  // Pointing at the solution root, not the individual control's project folder,
++  // is the case that previously returned nothing.
++  assert.deepEqual(await discoverBundles(root), [bundle]);
++  await fs.rm(root, { recursive: true, force: true });
++});
++
++test('discoverBundles finds multiple sibling controls in a solution folder', async () => {
++  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-monorepo-'));
++  const a = path.join(root, 'ControlA', 'out', 'controls', 'A', 'bundle.js');
++  const b = path.join(root, 'ControlB', 'out', 'controls', 'B', 'bundle.js');
++  await fs.mkdir(path.dirname(a), { recursive: true });
++  await fs.mkdir(path.dirname(b), { recursive: true });
++  await fs.writeFile(a, 'a');
++  await fs.writeFile(b, 'b');
++
++  const found = await discoverBundles(root);
++  assert.deepEqual(found.sort(), [a, b].sort());
++  await fs.rm(root, { recursive: true, force: true });
++});
++
++test('discoverBundles never descends into node_modules, even when it contains a dist folder', async () => {
++  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-project-'));
++  const real = path.join(root, 'out', 'controls', 'MyControl', 'bundle.js');
++  await fs.mkdir(path.dirname(real), { recursive: true });
++  await fs.writeFile(real, 'real');
++
++  const decoy = path.join(root, 'node_modules', 'some-dep', 'dist', 'bundle.js');
++  await fs.mkdir(path.dirname(decoy), { recursive: true });
++  await fs.writeFile(decoy, 'decoy');
++
++  assert.deepEqual(await discoverBundles(root), [real]);
++  await fs.rm(root, { recursive: true, force: true });
++});
++
++test('resolveArtifact reports unusable selections clearly', async () => {
++  const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-artifact-'));
++
++  await assert.rejects(() => resolveArtifact(path.join(folder, 'nope')), /does not exist/);
++  await assert.rejects(() => resolveArtifact(folder), /No bundle\.js found/);
++
++  const text = path.join(folder, 'notes.txt');
++  await fs.writeFile(text, 'x');
++  await assert.rejects(() => resolveArtifact(text), /Unsupported file type/);
++
++  await fs.rm(folder, { recursive: true, force: true });
++});
+ 
+ test('parses launch options', () => {
+   assert.deepEqual(parseLaunchArgs(['--root', 'C:\\project', '--bundle', 'C:\\project\\bundle.js']), {
+diff --git a/test/controller.test.js b/test/controller.test.js
+new file mode 100644
+index 0000000..9510a5b
+--- /dev/null
++++ b/test/controller.test.js
+@@ -0,0 +1,600 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import fs from 'node:fs/promises';
++import http from 'node:http';
++import os from 'node:os';
++import path from 'node:path';
++
++// Redirect the helper's config file (~/.pcf-local-override/config.json) into a
++// temp HOME before controller.js -> config.js resolves it at module load.
++const fakeHome = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-home-'));
++process.env.HOME = fakeHome;
++process.env.USERPROFILE = fakeHome;
++
++const { Controller } = await import('../helper/controller.js');
++
++/** Minimal stand-in for Chrome's /json target list endpoint. */
++async function targetsServer(targetList) {
++  const server = http.createServer((req, res) => {
++    res.writeHead(200, { 'Content-Type': 'application/json' });
++    res.end(JSON.stringify(targetList));
++  });
++  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
++  return { server, port: server.address().port };
++}
++
++/** Records every CDP command a Controller sends, without a real WebSocket. */
++function fakeClient() {
++  const sent = [];
++  return {
++    sent,
++    send(method, params = {}, sessionId) {
++      sent.push({ method, params, sessionId });
++      return Promise.resolve({});
++    },
++    close() { sent.push({ method: '__closed__' }); }
++  };
++}
++
++async function tempBundle(contents = 'console.log("local");', name = 'bundle.js') {
++  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-bundle-'));
++  const file = path.join(dir, name);
++  await fs.writeFile(file, contents);
++  return { dir, file };
++}
++
++const ruleFor = (url, resourceType = 'pcf') => ({
++  hostname: new URL(url).hostname,
++  exactPath: new URL(url).pathname.toLowerCase(),
++  normalized: null,
++  control: null,
++  selectedUrl: url,
++  resourceType
++});
++
++test('constructor forces a restored config to start disabled', () => {
++  const controller = new Controller({
++    root: '/tmp/project',
++    port: 9222,
++    bundles: [],
++    config: { enabled: true, bundlePath: '/tmp/project/bundle.js' },
++    resourceType: 'pcf'
++  });
++
++  assert.equal(controller.config.enabled, false, 'a persisted enabled:true must not auto-attach on startup');
++  assert.deepEqual(controller.status, { stage: 'idle' });
++});
++
++test('snapshot exposes the fields the extension popup renders', () => {
++  const controller = new Controller({
++    root: '/tmp/project', port: 9222, bundles: ['/tmp/project/bundle.js'],
++    config: null, resourceType: 'script'
++  });
++
++  assert.deepEqual(controller.snapshot(), {
++    projectRoot: '/tmp/project',
++    chromePort: 9222,
++    bundles: ['/tmp/project/bundle.js'],
++    config: null,
++    status: { stage: 'idle' },
++    connected: false,
++    resourceType: 'script',
++    hasArtifact: true
++  });
++});
++
++test('snapshot reports no artifact when the helper started bare', () => {
++  const controller = new Controller({ root: '/tmp/project', port: 9222, bundles: [] });
++  assert.equal(controller.snapshot().hasArtifact, false);
++});
++
++test('dynamicsTabs returns only Dynamics page targets', async () => {
++  const { server, port } = await targetsServer([
++    { id: 'a', type: 'page', title: 'Accounts', url: 'https://org.crm4.dynamics.com/main.aspx' },
++    { id: 'b', type: 'page', title: 'Docs', url: 'https://example.com/' },
++    { id: 'c', type: 'iframe', title: 'Nested', url: 'https://org.crm4.dynamics.com/frame' },
++    { id: 'd', type: 'page', title: 'Other CRM', url: 'https://org.crm.dynamics.com/main.aspx' }
++  ]);
++
++  try {
++    const controller = new Controller({ root: '/tmp/p', port, bundles: [] });
++    const tabs = await controller.dynamicsTabs();
++
++    assert.deepEqual(tabs.map(t => t.id), ['a', 'd'], 'non-Dynamics hosts and non-page types are excluded');
++    assert.equal(tabs[0].title, 'Accounts');
++  } finally {
++    server.close();
++  }
++});
++
++test('target throws a clear error when the tab is gone', async () => {
++  const { server, port } = await targetsServer([]);
++  try {
++    const controller = new Controller({ root: '/tmp/p', port, bundles: [] });
++    await assert.rejects(() => controller.target('missing'), /no longer available/);
++  } finally {
++    server.close();
++  }
++});
++
++test('configure rejects a local file the helper did not discover', async () => {
++  const controller = new Controller({
++    root: '/tmp/p', port: 9222, bundles: ['/tmp/p/out/bundle.js'], resourceType: 'pcf'
++  });
++
++  await assert.rejects(
++    () => controller.configure({
++      tabId: 'a',
++      bundlePath: '/tmp/p/somewhere-else/bundle.js',
++      resourceUrl: 'https://org.crm.dynamics.com/x/webresources/cc_C/bundle.js'
++    }),
++    /was not discovered by this helper/
++  );
++});
++
++test('configure asks for an artifact before anything is selected', async () => {
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++
++  await assert.rejects(
++    () => controller.configure({
++      tabId: 'a',
++      bundlePath: '/tmp/p/out/bundle.js',
++      resourceUrl: 'https://org.crm.dynamics.com/x/webresources/cc_C/bundle.js'
++    }),
++    /Select a local bundle, JavaScript, or HTML file first/
++  );
++});
++
++test('setArtifact rejects an empty selection', async () => {
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++  await assert.rejects(() => controller.setArtifact(''), /Select a local bundle/);
++  await assert.rejects(() => controller.setArtifact('   '), /Select a local bundle/);
++  await assert.rejects(() => controller.setArtifact(null), /Select a local bundle/);
++});
++
++test('setArtifact rejects a path that does not exist', async () => {
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++  await assert.rejects(
++    () => controller.setArtifact(path.join(os.tmpdir(), 'pcf-definitely-missing-xyz')),
++    /does not exist/
++  );
++});
++
++test('setArtifact derives pcf from a bundle file and populates the allowlist', async () => {
++  const { file } = await tempBundle();
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++
++  const snapshot = await controller.setArtifact(file);
++
++  assert.equal(snapshot.resourceType, 'pcf');
++  assert.deepEqual(snapshot.bundles, [file]);
++  assert.equal(snapshot.hasArtifact, true);
++  assert.equal(snapshot.status.stage, 'artifact-selected');
++
++  controller.stopWatcher?.();
++});
++
++test('setArtifact derives script from a non-bundle JavaScript file', async () => {
++  const { file } = await tempBundle('function onLoad() {}', 'account-form.js');
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++
++  const snapshot = await controller.setArtifact(file);
++  assert.equal(snapshot.resourceType, 'script');
++  assert.deepEqual(snapshot.bundles, [file]);
++
++  controller.stopWatcher?.();
++});
++
++test('setArtifact derives html from an HTML file', async () => {
++  const { file } = await tempBundle('<h1>x</h1>', 'dialog.html');
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++
++  const snapshot = await controller.setArtifact(file);
++  assert.equal(snapshot.resourceType, 'html');
++
++  controller.stopWatcher?.();
++});
++
++test('setArtifact accepts a folder containing a bundle', async () => {
++  const { dir, file } = await tempBundle();
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++
++  const snapshot = await controller.setArtifact(dir);
++  assert.equal(snapshot.resourceType, 'pcf');
++  assert.deepEqual(snapshot.bundles, [file]);
++  assert.equal(snapshot.projectRoot, dir, 'project root follows the selected artifact');
++
++  controller.stopWatcher?.();
++});
++
++test('setArtifact rejects an unsupported file type', async () => {
++  const { file } = await tempBundle('data', 'notes.txt');
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++  await assert.rejects(() => controller.setArtifact(file), /Unsupported file type/);
++});
++
++test('setArtifact discards a stale rule from a different resource type', async () => {
++  const { file: htmlFile } = await tempBundle('<h1>x</h1>', 'dialog.html');
++  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));
++
++  const controller = new Controller({
++    root,
++    port: 9222,
++    bundles: ['/tmp/old/bundle.js'],
++    config: {
++      bundlePath: '/tmp/old/bundle.js',
++      resourceType: 'pcf',
++      rule: ruleFor('https://org.crm4.dynamics.com/x/webresources/cc_C/bundle.js')
++    },
++    resourceType: 'pcf'
++  });
++
++  const snapshot = await controller.setArtifact(htmlFile);
++
++  assert.equal(snapshot.config, null, 'a PCF rule must not survive switching to an HTML artifact');
++  assert.equal(snapshot.resourceType, 'html');
++
++  controller.stopWatcher?.();
++});
++
++test('setArtifact tears down an active override before switching', async () => {
++  const { file } = await tempBundle();
++  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));
++  const controller = new Controller({ root, port: 9222, bundles: [], config: { enabled: true } });
++
++  const client = fakeClient();
++  controller.client = client;
++
++  await controller.setArtifact(file);
++
++  assert.ok(client.sent.some(c => c.method === 'Fetch.disable'), 'the previous interception must be released');
++  assert.equal(controller.client, null);
++
++  controller.stopWatcher?.();
++});
++
++test('configure rejects a resource URL that is not a candidate for the selected tab', async () => {
++  const { file } = await tempBundle();
++  const { server, port } = await targetsServer([
++    { id: 'a', type: 'page', title: 'D365', url: 'https://org.crm4.dynamics.com/main.aspx',
++      webSocketDebuggerUrl: 'ws://127.0.0.1/devtools/page/a' }
++  ]);
++
++  try {
++    const controller = new Controller({ root: '/tmp/p', port, bundles: [file], resourceType: 'pcf' });
++
++    // Right shape, wrong host - must not be accepted just because it looks like a bundle.
++    await assert.rejects(
++      () => controller.configure({
++        tabId: 'a',
++        bundlePath: file,
++        resourceUrl: 'https://attacker.example.com/webresources/cc_C/bundle.js'
++      }),
++      /must be a matching Dynamics web resource/
++    );
++  } finally {
++    server.close();
++  }
++});
++
++test('configure persists a rule and returns the saved config', async () => {
++  const { file } = await tempBundle();
++  const { server, port } = await targetsServer([
++    { id: 'a', type: 'page', title: 'D365', url: 'https://org.crm4.dynamics.com/main.aspx',
++      webSocketDebuggerUrl: 'ws://127.0.0.1/devtools/page/a' }
++  ]);
++
++  try {
++    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));
++    const controller = new Controller({ root, port, bundles: [file], resourceType: 'pcf' });
++
++    const resourceUrl = 'https://org.crm4.dynamics.com/%7bABC%7d/webresources/cc_Control/bundle.js';
++    const config = await controller.configure({ tabId: 'a', bundlePath: file, resourceUrl });
++
++    assert.equal(config.tabId, 'a');
++    assert.equal(config.bundlePath, file);
++    assert.equal(config.dynamicsHostname, 'org.crm4.dynamics.com');
++    assert.equal(config.resourceType, 'pcf');
++    assert.equal(config.enabled, false, 'configure must not auto-enable the override');
++    assert.equal(config.autoReload, true, 'autoReload defaults on');
++    assert.equal(config.rule.selectedUrl, resourceUrl);
++
++    // Written through to the redirected config file, not just held in memory.
++    const onDisk = JSON.parse(await fs.readFile(path.join(fakeHome, '.pcf-local-override', 'config.json'), 'utf8'));
++    assert.equal(onDisk.projects[path.resolve(root).toLowerCase()].bundlePath, file);
++
++    // configure() starts a real file watcher; release it or the test process will not exit.
++    controller.stopWatcher?.();
++  } finally {
++    server.close();
++  }
++});
++
++test('enable refuses to attach before a rule and local file are chosen', async () => {
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++  await assert.rejects(() => controller.enable(), /Select both the local file and Dynamics resource/);
++});
++
++test('configureSession refuses to attach with no interception pattern', async () => {
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++  controller.config = { rule: null };
++  await assert.rejects(
++    () => controller.configureSession(fakeClient()),
++    /No configured resource interception pattern/
++  );
++});
++
++test('onEvent passes through a request that does not match the rule', async () => {
++  const { file } = await tempBundle();
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [file], resourceType: 'pcf' });
++  controller.config = {
++    bundlePath: file,
++    rule: ruleFor('https://org.crm4.dynamics.com/x/webresources/cc_Control/bundle.js')
++  };
++
++  const client = fakeClient();
++  await controller.onEvent(client, 'Fetch.requestPaused', {
++    requestId: 'r1',
++    request: { url: 'https://org.crm4.dynamics.com/some/other/script.js' }
++  });
++
++  assert.deepEqual(client.sent.map(c => c.method), ['Fetch.continueRequest']);
++  assert.notEqual(controller.status.stage, 'served', 'a non-matching request must never be served locally');
++});
++
++test('onEvent serves the local file for a matching request', async () => {
++  const contents = 'console.log("served from disk");';
++  const { file } = await tempBundle(contents);
++  const url = 'https://org.crm4.dynamics.com/%7bABC%7d/webresources/cc_Control/bundle.js';
++
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [file], resourceType: 'pcf' });
++  controller.config = { bundlePath: file, rule: ruleFor(url) };
++
++  const client = fakeClient();
++  await controller.onEvent(client, 'Fetch.requestPaused', { requestId: 'r1', request: { url } });
++
++  const fulfil = client.sent.find(c => c.method === 'Fetch.fulfillRequest');
++  assert.ok(fulfil, 'a matching request must be fulfilled, not continued');
++  assert.equal(fulfil.params.responseCode, 200);
++  assert.equal(Buffer.from(fulfil.params.body, 'base64').toString(), contents);
++
++  const headers = Object.fromEntries(fulfil.params.responseHeaders.map(h => [h.name, h.value]));
++  assert.match(headers['Content-Type'], /javascript/);
++  assert.match(headers['Cache-Control'], /no-store/, 'stale caching would defeat the override');
++  assert.equal(headers['Content-Length'], String(Buffer.byteLength(contents)));
++  assert.match(headers['X-PCF-Local-Override-Hash'], /^[0-9a-f]{12}$/);
++
++  assert.equal(controller.status.stage, 'served');
++  assert.equal(controller.status.size, Buffer.byteLength(contents));
++  assert.equal(controller.status.target, 'page');
++});
++
++test('onEvent serves HTML resources with an HTML content type', async () => {
++  const { file } = await tempBundle('<h1>local</h1>', 'dialog.html');
++  const url = 'https://org.crm4.dynamics.com/webresources/cc_/dialog.html';
++
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [file], resourceType: 'html' });
++  controller.config = { bundlePath: file, rule: ruleFor(url, 'html') };
++
++  const client = fakeClient();
++  await controller.onEvent(client, 'Fetch.requestPaused', { requestId: 'r1', request: { url } });
++
++  const fulfil = client.sent.find(c => c.method === 'Fetch.fulfillRequest');
++  const headers = Object.fromEntries(fulfil.params.responseHeaders.map(h => [h.name, h.value]));
++  assert.match(headers['Content-Type'], /text\/html/);
++});
++
++test('onEvent tags iframe-served requests distinctly from page requests', async () => {
++  const { file } = await tempBundle();
++  const url = 'https://org.crm4.dynamics.com/x/webresources/cc_Control/bundle.js';
++
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [file], resourceType: 'pcf' });
++  controller.config = { bundlePath: file, rule: ruleFor(url) };
++
++  const client = fakeClient();
++  await controller.onEvent(client, 'Fetch.requestPaused', { requestId: 'r1', request: { url } }, 'session-9');
++
++  const fulfil = client.sent.find(c => c.method === 'Fetch.fulfillRequest');
++  assert.equal(fulfil.sessionId, 'session-9', 'the fulfil must go back on the originating session');
++  assert.equal(controller.status.target, 'iframe');
++});
++
++test('onEvent falls back to continueRequest when the local file cannot be read', async () => {
++  const { dir, file } = await tempBundle();
++  const url = 'https://org.crm4.dynamics.com/x/webresources/cc_Control/bundle.js';
++
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [file], resourceType: 'pcf' });
++  controller.config = { bundlePath: file, rule: ruleFor(url) };
++
++  await fs.rm(dir, { recursive: true, force: true });
++
++  const client = fakeClient();
++  await controller.onEvent(client, 'Fetch.requestPaused', { requestId: 'r1', request: { url } });
++
++  assert.ok(
++    client.sent.some(c => c.method === 'Fetch.continueRequest'),
++    'a failed local read must let the real Dynamics resource through rather than hang the request'
++  );
++  assert.equal(controller.status.stage, 'error');
++  assert.equal(controller.status.url, url);
++});
++
++test('onEvent configures interception for attached iframe targets', async () => {
++  const { file } = await tempBundle();
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [file], resourceType: 'pcf' });
++  controller.config = {
++    bundlePath: file,
++    rule: ruleFor('https://org.crm4.dynamics.com/x/webresources/cc_Control/bundle.js')
++  };
++
++  const client = fakeClient();
++  await controller.onEvent(client, 'Target.attachedToTarget', {
++    sessionId: 'iframe-1',
++    targetInfo: { type: 'iframe' }
++  });
++
++  const methods = client.sent.filter(c => c.sessionId === 'iframe-1').map(c => c.method);
++  assert.ok(methods.includes('Fetch.enable'), 'iframes must get their own Fetch interception');
++  assert.ok(methods.includes('Network.setCacheDisabled'));
++  assert.ok(methods.includes('Runtime.runIfWaitingForDebugger'), 'the paused target must always be released');
++});
++
++test('onEvent always releases a waiting target even when session setup fails', async () => {
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++  controller.config = { rule: null }; // forces configureSession to throw
++
++  const client = fakeClient();
++  await assert.rejects(
++    () => controller.onEvent(client, 'Target.attachedToTarget', {
++      sessionId: 'iframe-2',
++      targetInfo: { type: 'iframe' }
++    })
++  );
++
++  assert.ok(
++    client.sent.some(c => c.method === 'Runtime.runIfWaitingForDebugger' && c.sessionId === 'iframe-2'),
++    'a failed setup must not leave the iframe hung waiting for the debugger'
++  );
++});
++
++test('handleEvent swallows benign stale-session CDP errors', async () => {
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++  controller.onEvent = async () => { throw new Error('No session with given id found'); };
++
++  await controller.handleEvent(fakeClient(), 'Fetch.requestPaused', {});
++  assert.notEqual(controller.status.stage, 'error', 'a closed tab is expected, not a reportable failure');
++});
++
++test('handleEvent records genuine failures as error status', async () => {
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++  controller.onEvent = async () => { throw new Error('something actually broke'); };
++
++  await controller.handleEvent(fakeClient(), 'Fetch.requestPaused', {});
++  assert.equal(controller.status.stage, 'error');
++  assert.equal(controller.status.message, 'something actually broke');
++});
++
++test('disable detaches the client and marks the override off', async () => {
++  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));
++  const controller = new Controller({ root, port: 9222, bundles: [], config: { enabled: true } });
++
++  const client = fakeClient();
++  controller.client = client;
++
++  const snapshot = await controller.disable();
++
++  assert.ok(client.sent.some(c => c.method === 'Fetch.disable'));
++  assert.ok(client.sent.some(c => c.method === '__closed__'), 'the CDP socket must be closed, not leaked');
++  assert.equal(controller.client, null);
++  assert.equal(controller.config.enabled, false);
++  assert.equal(snapshot.connected, false);
++  assert.equal(controller.status.stage, 'off');
++});
++
++test('reload requires an active override for the configured tab', async () => {
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++  controller.config = { tabId: 'a' };
++  await assert.rejects(() => controller.reload('a'), /not active/);
++});
++
++test('reload clears cache and hard-reloads the attached tab', async () => {
++  const controller = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++  controller.config = { tabId: 'a' };
++  const client = fakeClient();
++  controller.client = client;
++
++  await controller.reload('a');
++
++  const reload = client.sent.find(c => c.method === 'Page.reload');
++  assert.ok(client.sent.some(c => c.method === 'Network.clearBrowserCache'));
++  assert.equal(reload.params.ignoreCache, true, 'a cached bundle would mask the local override');
++});
++
++test('setAutoReload requires configuration and persists the flag', async () => {
++  const bare = new Controller({ root: '/tmp/p', port: 9222, bundles: [] });
++  await assert.rejects(() => bare.setAutoReload(true), /Configure the project first/);
++
++  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));
++  const controller = new Controller({ root, port: 9222, bundles: [], config: { autoReload: true } });
++
++  const snapshot = await controller.setAutoReload(false);
++  assert.equal(snapshot.config.autoReload, false);
++});
++
++test('startWatcher ignores a configured path outside the discovered bundle list', () => {
++  const controller = new Controller({
++    root: '/tmp/p', port: 9222, bundles: ['/tmp/p/out/bundle.js']
++  });
++  controller.config = { bundlePath: '/tmp/p/elsewhere/bundle.js' };
++
++  controller.startWatcher();
++  assert.equal(controller.stopWatcher, undefined, 'must not watch a file the helper never discovered');
++});
++
++test('close stops the watcher and disables the override', async () => {
++  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));
++  const controller = new Controller({ root, port: 9222, bundles: [], config: { enabled: true } });
++
++  let watcherStopped = false;
++  controller.stopWatcher = () => { watcherStopped = true; };
++  const client = fakeClient();
++  controller.client = client;
++
++  await controller.close();
++
++  assert.equal(watcherStopped, true);
++  assert.equal(controller.client, null);
++  assert.equal(controller.status.stage, 'off');
++});
++
++test('reload settle window coalesces a burst of rebuilds into one reload', async () => {
++  const { file } = await tempBundle('v1');
++  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));
++
++  const controller = new Controller({
++    root, port: 9222, bundles: [file], resourceType: 'pcf', reloadSettleMs: 30
++  });
++  // The constructor intentionally forces enabled:false on any config passed
++  // at construction time (verified above by "constructor forces a restored
++  // config to start disabled"). Simulating an already-active override means
++  // setting config directly afterward, same as the other reload tests do.
++  controller.config = { bundlePath: file, autoReload: true, enabled: true, tabId: 'a' };
++  const client = fakeClient();
++  controller.client = client;
++  controller.startWatcher();
++
++  // Simulate three rapid recompiles landing inside the settle window, the way
++  // editor autosave firing on consecutive keystrokes would.
++  await fs.writeFile(file, 'v2');
++  await new Promise(r => setTimeout(r, 60));
++  await fs.writeFile(file, 'v3');
++  await new Promise(r => setTimeout(r, 60));
++  await fs.writeFile(file, 'v4');
++
++  // Wait past the debounce + stableRead settle + reload settle window.
++  await new Promise(r => setTimeout(r, 800));
++
++  const reloads = client.sent.filter(c => c.method === 'Page.reload').length;
++  assert.equal(reloads, 1, `expected exactly one coalesced reload, got ${reloads}`);
++
++  controller.stopWatcher?.();
++});
++
++test('reload settle window does not fire when autoReload is off', async () => {
++  const { file } = await tempBundle('v1');
++  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));
++
++  const controller = new Controller({
++    root, port: 9222, bundles: [file], resourceType: 'pcf', reloadSettleMs: 30
++  });
++  controller.config = { bundlePath: file, autoReload: false, enabled: true, tabId: 'a' };
++  const client = fakeClient();
++  controller.client = client;
++  controller.startWatcher();
++
++  await fs.writeFile(file, 'v2');
++  await new Promise(r => setTimeout(r, 500));
++
++  assert.equal(client.sent.filter(c => c.method === 'Page.reload').length, 0);
++  controller.stopWatcher?.();
++});
+diff --git a/test/native-protocol.test.js b/test/native-protocol.test.js
+new file mode 100644
+index 0000000..157fa18
+--- /dev/null
++++ b/test/native-protocol.test.js
+@@ -0,0 +1,50 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { encodeMessage, createDecoder } from '../helper/native-protocol.js';
++
++test('encodes and decodes a single framed message', () => {
++  const received = [];
++  const decode = createDecoder(value => received.push(value));
++  decode(encodeMessage({ type: 'ping' }));
++  assert.deepEqual(received, [{ type: 'ping' }]);
++});
++
++test('handles multiple messages split arbitrarily across chunks', () => {
++  const received = [];
++  const decode = createDecoder(value => received.push(value));
++  const encoded = Buffer.concat([
++    encodeMessage({ a: 1 }),
++    encodeMessage({ b: 2 }),
++    encodeMessage({ c: 3 })
++  ]);
++
++  // Split at an awkward byte offset that lands mid-frame, not on a message boundary.
++  decode(encoded.subarray(0, 5));
++  decode(encoded.subarray(5, 9));
++  decode(encoded.subarray(9));
++
++  assert.deepEqual(received, [{ a: 1 }, { b: 2 }, { c: 3 }]);
++});
++
++test('reports malformed frame bodies via the error callback, not a throw', () => {
++  const received = [];
++  const decode = createDecoder((value, error) => received.push({ value, error: error?.message }));
++
++  const header = Buffer.alloc(4);
++  header.writeUInt32LE(4, 0);
++  assert.doesNotThrow(() => decode(Buffer.concat([header, Buffer.from('nope')])));
++
++  assert.equal(received[0].value, undefined);
++  assert.match(received[0].error, /JSON|Unexpected token/);
++});
++
++test('round-trips a realistic start/stop message shape', () => {
++  const received = [];
++  const decode = createDecoder(value => received.push(value));
++  decode(encodeMessage({ type: 'start', options: { bundle: 'C:\\proj\\out\\Control' } }));
++  decode(encodeMessage({ type: 'stop' }));
++  assert.deepEqual(received, [
++    { type: 'start', options: { bundle: 'C:\\proj\\out\\Control' } },
++    { type: 'stop' }
++  ]);
++});
+diff --git a/test/picker.test.js b/test/picker.test.js
+new file mode 100644
+index 0000000..ebc876c
+--- /dev/null
++++ b/test/picker.test.js
+@@ -0,0 +1,62 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { buildPickerCommand, parsePickerOutput } from '../helper/picker.js';
++
++test('builds a Windows folder picker in a single-threaded apartment', () => {
++  const { command, args } = buildPickerCommand('win32', 'folder');
++  assert.equal(command, 'powershell');
++  assert.ok(args.includes('-STA'), 'WinForms dialogs require -STA or they never appear');
++  assert.ok(args.includes('-NoProfile'));
++  assert.match(args.at(-1), /FolderBrowserDialog/);
++  assert.match(args.at(-1), /SelectedPath/);
++});
++
++test('builds a Windows file picker filtered to web resource types', () => {
++  const { args } = buildPickerCommand('win32', 'file');
++  const script = args.at(-1);
++  assert.match(script, /OpenFileDialog/);
++  assert.match(script, /\*\.js;\*\.html;\*\.htm/);
++  assert.match(script, /FileName/);
++});
++
++test('escapes single quotes in the Windows dialog title', () => {
++  const { args } = buildPickerCommand('win32', 'folder', { title: "Shiv's bundle" });
++  assert.match(args.at(-1), /Shiv''s bundle/, "an unescaped quote would break the PowerShell string");
++});
++
++test('builds macOS and Linux pickers for both modes', () => {
++  const macFolder = buildPickerCommand('darwin', 'folder');
++  assert.equal(macFolder.command, 'osascript');
++  assert.match(macFolder.args.at(-1), /choose folder/);
++
++  const macFile = buildPickerCommand('darwin', 'file');
++  assert.match(macFile.args.at(-1), /choose file/);
++
++  const linuxFolder = buildPickerCommand('linux', 'folder');
++  assert.equal(linuxFolder.command, 'zenity');
++  assert.ok(linuxFolder.args.includes('--directory'));
++
++  const linuxFile = buildPickerCommand('linux', 'file');
++  assert.ok(!linuxFile.args.includes('--directory'));
++});
++
++test('rejects unsupported platforms and modes', () => {
++  assert.throws(() => buildPickerCommand('aix', 'folder'), /not supported on platform/);
++  assert.throws(() => buildPickerCommand('win32', 'network-share'), /Unsupported picker mode/);
++});
++
++test('parsePickerOutput normalizes real selections', () => {
++  assert.equal(parsePickerOutput('C:\\proj\\out\\MyControl\r\n'), 'C:\\proj\\out\\MyControl');
++  assert.equal(parsePickerOutput('  /home/shiv/proj/out  '), '/home/shiv/proj/out');
++});
++
++test('parsePickerOutput strips the trailing separator macOS adds to folders', () => {
++  assert.equal(parsePickerOutput('/Users/shiv/proj/out/'), '/Users/shiv/proj/out');
++});
++
++test('parsePickerOutput treats empty output as a cancelled dialog', () => {
++  assert.equal(parsePickerOutput(''), null);
++  assert.equal(parsePickerOutput('   \r\n  '), null);
++  assert.equal(parsePickerOutput(undefined), null);
++  assert.equal(parsePickerOutput(null), null);
++});
+diff --git a/test/watcher.test.js b/test/watcher.test.js
+new file mode 100644
+index 0000000..c665099
+--- /dev/null
++++ b/test/watcher.test.js
+@@ -0,0 +1,81 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import fs from 'node:fs/promises';
++import os from 'node:os';
++import path from 'node:path';
++import { watchBundle } from '../helper/watcher.js';
++
++async function tempFile(contents) {
++  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'watcher-'));
++  const file = path.join(dir, 'bundle.js');
++  await fs.writeFile(file, contents);
++  return { dir, file };
++}
++
++test('fires once for a single content change after the seed has settled', async () => {
++  const { file } = await tempFile('v1');
++  await new Promise(r => setTimeout(r, 300)); // let the seed read complete first
++
++  const changes = [];
++  const stop = watchBundle(file, ({ data }) => changes.push(data.toString()));
++
++  await fs.writeFile(file, 'v2-different-length');
++  await new Promise(r => setTimeout(r, 800));
++
++  assert.deepEqual(changes, ['v2-different-length']);
++  stop();
++});
++
++test('does not fire when the watched file never actually changes', async () => {
++  const { file } = await tempFile('v1');
++  await new Promise(r => setTimeout(r, 300));
++
++  const changes = [];
++  const stop = watchBundle(file, ({ data }) => changes.push(data.toString()));
++
++  // Touch the file (rewrite identical content) - a real fs event with no real change.
++  await fs.writeFile(file, 'v1');
++  await new Promise(r => setTimeout(r, 800));
++
++  assert.deepEqual(changes, []);
++  stop();
++});
++
++test('regression: a burst of rapid same-length rewrites starting immediately after watch() must not be silently swallowed', async () => {
++  // This reproduces a real bug: the initial hash seed used to be read through
++  // a stability-gated loop. If the file kept changing while that loop was
++  // still polling, the seed converged on the LAST value written instead of
++  // the value present when watching started - making the real change that
++  // followed look like "no change" and never firing onChange at all.
++  const { file } = await tempFile('v1');
++
++  const changes = [];
++  const stop = watchBundle(file, ({ data }) => changes.push(data.toString()));
++
++  // No settle delay: writes start racing the seed read immediately.
++  await fs.writeFile(file, 'v2');
++  await new Promise(r => setTimeout(r, 60));
++  await fs.writeFile(file, 'v3');
++  await new Promise(r => setTimeout(r, 60));
++  await fs.writeFile(file, 'v4');
++
++  await new Promise(r => setTimeout(r, 800));
++
++  assert.ok(changes.length >= 1, 'a genuine content change must never be silently swallowed');
++  assert.equal(changes.at(-1), 'v4', 'the final observed content must be the actual final content');
++  stop();
++});
++
++test('stop() prevents any further onChange calls', async () => {
++  const { file } = await tempFile('v1');
++  await new Promise(r => setTimeout(r, 300));
++
++  const changes = [];
++  const stop = watchBundle(file, ({ data }) => changes.push(data.toString()));
++  stop();
++
++  await fs.writeFile(file, 'v2-different-length');
++  await new Promise(r => setTimeout(r, 800));
++
++  assert.deepEqual(changes, [], 'no callback should fire after stop() has been called');
++});

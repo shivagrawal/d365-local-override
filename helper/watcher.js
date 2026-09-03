@@ -5,9 +5,6 @@ import { stableRead } from './utils.js';
 
 export function watchBundle(file, onChange) {
   let timer, hash;
-  stableRead(file)
-    .then(({ data }) => hash = createHash('sha256').update(data).digest('hex'))
-    .catch(() => {});
 
   const watcher = fs.watch(path.dirname(file), (_e, name) => {
     if (name && name.toString() !== path.basename(file)) return;
@@ -25,6 +22,21 @@ export function watchBundle(file, onChange) {
       }
     }, 250);
   });
+
+  // Seed synchronously, immediately after registering the watch, so no write
+  // issued by the caller right after this call returns can possibly complete
+  // before the seed does. Two independent async fs operations (an async seed
+  // read racing a near-simultaneous write) have no guaranteed completion
+  // order - either can "win", and if the write wins, the seed captures the
+  // NEW content, making the very next real change look identical to the
+  // seed and silently swallowing it. A synchronous read has no such race:
+  // nothing else runs on this thread between fs.watch() returning and this
+  // line executing.
+  try {
+    hash = createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  } catch {
+    hash = null; // file may not exist yet; the first real write will seed it via the watch callback
+  }
 
   return () => {
     clearTimeout(timer);
