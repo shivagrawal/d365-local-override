@@ -136,8 +136,7 @@ function render(){
   renderStatus(state.status);
   const activeTypes=new Set((state.rules||[]).map(r=>r.resourceType));
   const badgeType=activeTypes.size===1?[...activeTypes][0]:undefined;
-  const badgeTabId=state.rules?.[0]?.tabId;
-  if(badgeTabId)chrome.tabs.sendMessage(badgeTabId,{active:state.connected,resourceType:badgeType}).catch(()=>{});
+  chrome.tabs.query({url:'https://*.dynamics.com/*'}).then(tabs=>tabs.forEach(t=>chrome.tabs.sendMessage(t.id,{active:state.connected,resourceType:badgeType}).catch(()=>{})));
 }
 
 async function initialize(){
@@ -158,6 +157,7 @@ async function refreshStatus(){
     const count=state.rules?.length||0;
     $('statusDot').className='dot'+(state.connected?' on':'');
     $('statusLine').textContent=count?`${count} override${count===1?'':'s'} ${state.connected?'active':'configured'}`:'Helper connected';
+    sendToNativeHost('watch-status').catch(()=>{});
   }catch{clearInterval(timer);$('offline').classList.remove('hidden');$('online').classList.add('hidden');}
 }
 function showNativeError(message=''){ $('nativeError').textContent=message; $('nativeError').classList.toggle('hidden',!message); }
@@ -209,8 +209,7 @@ chrome.runtime.onMessage.addListener(message=>{
   if(message.type==='status'&&message.stage==='stopped'){
     clearInterval(timer);
     $('online').classList.add('hidden');$('offline').classList.remove('hidden');
-    const badgeTabId=state?.rules?.[0]?.tabId;
-    if(badgeTabId)chrome.tabs.sendMessage(badgeTabId,{active:false}).catch(()=>{});
+    chrome.tabs.query({url:'https://*.dynamics.com/*'}).then(tabs=>tabs.forEach(t=>chrome.tabs.sendMessage(t.id,{active:false}).catch(()=>{})));
   }
   if(message.type==='error'){
     showNativeError(message.message);

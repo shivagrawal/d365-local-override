@@ -8,7 +8,7 @@ import { stableRead, formatSize } from './utils.js';
 import { watchBundle } from './watcher.js';
 
 export class Controller {
-  constructor({ root, port, bundles, rules, resourceType = 'pcf', reloadSettleMs = 400 }) {
+  constructor({ root, port, bundles, rules, resourceType = 'pcf', reloadSettleMs = 150 }) {
     Object.assign(this, { root, port, bundles, resourceType, reloadSettleMs });
     this.rules = Array.isArray(rules) ? rules : [];
     // Never auto-attach on startup, regardless of what was persisted - the

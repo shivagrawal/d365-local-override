@@ -1,7 +1,27 @@
 import http from 'node:http';
+import { execFile } from 'node:child_process';
 
 const HOST = '127.0.0.1';
 const PORT = 32145;
+
+/**
+ * Port 32145 is exclusively this tool's by design - nothing else should ever
+ * bind it. If something already holds it, it's almost certainly an orphaned
+ * instance of this same server from a prior session that didn't shut down
+ * cleanly (Chrome killed abruptly, extension reloaded/disabled without a
+ * clean Stop - native messaging doesn't always deliver a clean disconnect).
+ * Safe to clear and retry, unlike an arbitrary shared port on a real server.
+ */
+function killPortOwner(port, execFileFn = execFile) {
+  return new Promise(resolve => {
+    if (process.platform === 'win32') {
+      const script = `Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }`;
+      execFileFn('powershell', ['-NoProfile', '-Command', script], () => resolve());
+    } else {
+      execFileFn('sh', ['-c', `lsof -ti tcp:${port} | xargs -r kill -9`], () => resolve());
+    }
+  });
+}
 
 const json = (res, status, value, origin) => {
   res.writeHead(status, {
@@ -27,7 +47,7 @@ const body = req => new Promise((resolve, reject) => {
   req.on('error', reject);
 });
 
-export function startServer(controller) {
+export async function startServer(controller, execFileFn = execFile) {
   const server = http.createServer(async (req, res) => {
     const origin = req.headers.origin || '';
     if (origin && !origin.startsWith('chrome-extension://')) {
@@ -60,8 +80,17 @@ export function startServer(controller) {
     }
   });
 
-  return new Promise((resolve, reject) => {
+  const attempt = () => new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(PORT, HOST, () => resolve({ server, host: HOST, port: PORT }));
   });
+
+  try {
+    return await attempt();
+  } catch (error) {
+    if (error.code !== 'EADDRINUSE') throw error;
+    await killPortOwner(PORT, execFileFn);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    return await attempt();
+  }
 }
