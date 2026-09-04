@@ -34,12 +34,14 @@ export async function ensureChrome(port) {
 
   child.unref();
 
-  for (let i = 0; i < 30; i++) {
-    await sleep(250);
+  // Check immediately, then poll quickly. The old loop always slept before
+  // the first check, adding latency even when Chrome came up fast.
+  for (let i = 0; i < 75; i++) {
     try {
       await targets(port);
       return { reused: false, executable, profile };
     } catch {}
+    await sleep(100);
   }
   throw new Error(`Development Chrome did not open on port ${port}.`);
 }

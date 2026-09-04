@@ -601,6 +601,54 @@ test('handleEvent records genuine failures as error status', async () => {
   assert.equal(controller.status.message, 'something actually broke');
 });
 
+test('regression: an unexpected CDP drop does NOT turn the override off (it reconnects)', async () => {
+  // Reproduces the reported symptom: saving a file triggers a hard reload,
+  // the page's CDP socket drops, and "Enable overrides" silently unticked.
+  // A navigation blip is not a request to disable - the session must
+  // reattach itself rather than make the developer re-enable after each save.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));
+  const controller = new Controller({ root, port: 9222, bundles: [], rules: [ruleEntry()] });
+  controller.enabled = true;
+  controller.intentionalDisable = false;
+
+  const client = fakeClient();
+  controller.client = client;
+
+  // Simulate exactly what CdpClient does when the socket closes.
+  controller.client = null;
+  controller.status = { stage: 'reconnecting', at: Date.now() };
+
+  assert.equal(controller.enabled, true, 'a transient drop must not clear enabled');
+  assert.equal(controller.snapshot().status.stage, 'reconnecting');
+});
+
+test('regression: an intentional disable still turns the override off and stays off', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));
+  const controller = new Controller({ root, port: 9222, bundles: [], rules: [ruleEntry()] });
+  controller.enabled = true;
+
+  const client = fakeClient();
+  controller.client = client;
+
+  await controller.disable();
+
+  assert.equal(controller.intentionalDisable, true, 'disable must mark itself intentional so reconnect does not fight it');
+  assert.equal(controller.enabled, false);
+  assert.equal(controller.status.stage, 'off');
+});
+
+test('regression: close() marks the teardown intentional so no reconnect is attempted', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));
+  const controller = new Controller({ root, port: 9222, bundles: [], rules: [ruleEntry()] });
+  controller.enabled = true;
+  controller.client = fakeClient();
+
+  await controller.close();
+
+  assert.equal(controller.intentionalDisable, true);
+  assert.equal(controller.enabled, false);
+});
+
 test('disable detaches the client and marks the override off', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-root-'));
   const controller = new Controller({ root, port: 9222, bundles: [], rules: [ruleEntry()] });

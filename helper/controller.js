@@ -265,6 +265,9 @@ export class Controller {
     }
 
     await this.disable();
+    // disable() sets this flag; clear it now that we're deliberately
+    // (re)attaching, so a later unexpected socket drop triggers reconnect.
+    this.intentionalDisable = false;
 
     let tabId = this.rules[0].tabId;
     let target;
@@ -294,15 +297,32 @@ export class Controller {
       client.on('disconnect', () => {
         if (this.client === client) {
           this.client = null;
-          this.enabled = false;
 
-          this.persist().catch(error => console.error(`Config: ${error.message}`));
+          // A hard reload can drop the page's CDP socket. That's a transient
+          // blip during navigation, not a request to turn the override off -
+          // so reconnect instead of silently unticking Enable overrides and
+          // making the developer re-enable after every save.
+          if (this.intentionalDisable) {
+            this.enabled = false;
+            this.persist().catch(error => console.error(`Config: ${error.message}`));
+            this.status = { stage: 'off', at: Date.now() };
+            return;
+          }
 
           this.status = {
-            stage: 'disconnected',
-            message: 'Chrome tab disconnected.',
+            stage: 'reconnecting',
+            message: 'Chrome tab disconnected, reattaching…',
             at: Date.now()
           };
+
+          setTimeout(() => {
+            // Only reattach if nothing else took over or shut things down.
+            if (this.client || !this.enabled || this.intentionalDisable) return;
+            this.enable().catch(error => {
+              this.enabled = false;
+              this.status = { stage: 'error', message: error.message, at: Date.now() };
+            });
+          }, 500);
         }
       });
 
@@ -461,6 +481,8 @@ export class Controller {
   }
 
   async disable() {
+    this.intentionalDisable = true;
+
     if (this.client) {
       const client = this.client;
       this.client = null;

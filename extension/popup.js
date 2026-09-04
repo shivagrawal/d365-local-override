@@ -255,6 +255,10 @@ chrome.runtime.onMessage.addListener(message=>{
   }
   if(message.type==='error'){
     showNativeError(message.message);
+    // The native host can die while the helper it launched is still alive and
+    // serving (they're separate processes). Re-check rather than leaving the
+    // UI stuck on an error for a session that's actually working.
+    setTimeout(()=>initialize().catch(()=>{}),400);
   }
   if(message.type==='watch-detected'){
     if(message.projectRoot){

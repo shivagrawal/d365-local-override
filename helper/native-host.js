@@ -18,6 +18,22 @@ const watchers = new PcfWatcherPool();
 
 const send = message => process.stdout.write(encodeMessage(message));
 
+// Without these, any uncaught error kills this process silently and Chrome
+// reports only "Native host has exited" with no cause. Report the real error
+// over the protocol first so it's visible in the popup.
+function reportFatal(label) {
+  return error => {
+    try {
+      send({ type: 'error', message: `${label}: ${error?.message || error}` });
+    } catch {
+      // stdout may already be unusable; stderr still reaches Chrome's logs
+    }
+    console.error(`[PatchPilot native host] ${label}:`, error);
+  };
+}
+process.on('uncaughtException', reportFatal('Uncaught exception'));
+process.on('unhandledRejection', reportFatal('Unhandled rejection'));
+
 async function handle(message) {
   try {
     if (message.type === 'start') {

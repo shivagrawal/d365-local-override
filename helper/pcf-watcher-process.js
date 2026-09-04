@@ -1,6 +1,13 @@
 import { spawn, execFile } from 'node:child_process';
 
-const MAX_LOG_LINES = 200;
+const MAX_LOG_CHARS = 24000;
+
+/**
+ * Bounded by CHARACTERS, not chunk count. Chrome terminates a native
+ * messaging host that sends an oversized message, and a single webpack chunk
+ * can be very large - counting chunks alone let the log grow without limit
+ * and take the whole host down with no visible error.
+ */
 
 function pgrepChildren(pid) {
   return new Promise(resolve => {
@@ -86,8 +93,14 @@ export class PcfWatcher {
 
   _appendLog(chunk) {
     this.log.push(chunk.toString());
-    // Bound memory: keep roughly the last MAX_LOG_LINES lines' worth of chunks.
-    if (this.log.length > MAX_LOG_LINES) this.log = this.log.slice(-MAX_LOG_LINES);
+    let total = this.log.reduce((sum, part) => sum + part.length, 0);
+    while (total > MAX_LOG_CHARS && this.log.length > 1) {
+      total -= this.log.shift().length;
+    }
+    // A single chunk can exceed the cap on its own - truncate it directly.
+    if (this.log.length === 1 && this.log[0].length > MAX_LOG_CHARS) {
+      this.log[0] = this.log[0].slice(-MAX_LOG_CHARS);
+    }
   }
 
   start(projectRoot, scriptName) {

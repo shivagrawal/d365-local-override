@@ -102,7 +102,7 @@ test('stop() reports stopped:true for an active watcher', async () => {
   // about *how* it was killed at this level.
 });
 
-test('log stays bounded even for a very chatty process', () => {
+test('log stays bounded by total size, not chunk count, for a very chatty process', () => {
   let child;
   const spawnFn = () => { child = fakeChild(); return child; };
   const watcher = new PcfWatcher({ spawnFn });
@@ -110,7 +110,24 @@ test('log stays bounded even for a very chatty process', () => {
   watcher.start('/proj', 'start:watch');
   for (let i = 0; i < 500; i++) child.stdout.emit('data', Buffer.from(`line ${i}\n`));
 
-  assert.ok(watcher.log.length <= 200, `log should stay bounded, got ${watcher.log.length} entries`);
+  const total = watcher.snapshot().log.length;
+  assert.ok(total <= 24000, `log should stay bounded by size, got ${total} chars`);
+  assert.match(watcher.snapshot().log, /line 499/, 'the most recent output must be kept');
+});
+
+test('regression: a single oversized chunk is truncated rather than sent whole', () => {
+  // Chrome terminates a native messaging host that sends an oversized
+  // message. Counting chunks alone did not protect against one enormous
+  // chunk - webpack can emit these - which killed the host with no error.
+  let child;
+  const spawnFn = () => { child = fakeChild(); return child; };
+  const watcher = new PcfWatcher({ spawnFn });
+
+  watcher.start('/proj', 'start:watch');
+  child.stdout.emit('data', Buffer.from('x'.repeat(500000)));
+
+  const total = watcher.snapshot().log.length;
+  assert.ok(total <= 24000, `a single huge chunk must be truncated, got ${total} chars`);
 });
 
 // Integration: a real OS-level process via a real npm project, not a fake -
