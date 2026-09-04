@@ -38,7 +38,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       type: message.type,
       options: message.options,
       mode: message.mode,
-      title: message.title
+      title: message.title,
+      resourceType: message.resourceType
     });
     sendResponse({ ok: true });
   } catch (error) {

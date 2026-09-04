@@ -119,6 +119,7 @@ $('bundle').onchange=updateTypeLabels;
 function render(){
   $('bundle').replaceChildren(...state.bundles.map(v=>option(v,localLabel(v,state.projectRoot))));
   if(!state.hasArtifact)$('bundle').append(option('','No local file selected yet'));
+  $('bundleFilter').classList.toggle('hidden',(state.bundles?.length||0)<6);
   if(state.hasArtifact&&!$('artifactPath').value)$('artifactPath').value=state.bundles[0];
   $('scan').disabled=!state.hasArtifact;
   updateTypeLabels();
@@ -131,12 +132,20 @@ function render(){
   $('statusDot').className='dot'+(state.connected?' on':count?'':' ');
   $('statusLine').textContent=count
     ?`${count} override${count===1?'':'s'} ${state.connected?'active':'configured'}`
-    :'Helper connected';
+    :'Connected';
 
   renderStatus(state.status);
   const activeTypes=new Set((state.rules||[]).map(r=>r.resourceType));
   const badgeType=activeTypes.size===1?[...activeTypes][0]:undefined;
   chrome.tabs.query({url:'https://*.dynamics.com/*'}).then(tabs=>tabs.forEach(t=>chrome.tabs.sendMessage(t.id,{active:state.connected,resourceType:badgeType}).catch(()=>{})));
+}
+
+/** The build watch belongs to the PCF override that's actually ACTIVE, not
+ * to whatever folder was last browsed for staging. Using the staged artifact
+ * meant browsing a different project (to add another override) silently
+ * re-pointed the watch at that project instead of the one being served. */
+function activePcfBundlePath(){
+  return (state?.rules||[]).find(r=>r.resourceType==='pcf')?.bundlePath||null;
 }
 
 async function initialize(){
@@ -145,7 +154,8 @@ async function initialize(){
     $('offline').classList.add('hidden');$('online').classList.remove('hidden');
     await loadTabs();render();timer=setInterval(refreshStatus,1000);
     sendToNativeHost('watch-status').catch(()=>{});
-    if(state.hasArtifact&&state.bundles?.length)detectWatch(state.bundles[0]);
+    const pcfPath=activePcfBundlePath();
+    if(pcfPath)detectWatch(pcfPath);
   }catch{$('offline').classList.remove('hidden');$('online').classList.add('hidden');}
 }
 async function refreshStatus(){
@@ -156,8 +166,9 @@ async function refreshStatus(){
     renderRulesList();
     const count=state.rules?.length||0;
     $('statusDot').className='dot'+(state.connected?' on':'');
-    $('statusLine').textContent=count?`${count} override${count===1?'':'s'} ${state.connected?'active':'configured'}`:'Helper connected';
+    $('statusLine').textContent=count?`${count} override${count===1?'':'s'} ${state.connected?'active':'configured'}`:'Connected';
     sendToNativeHost('watch-status').catch(()=>{});
+    renderWatch();
   }catch{clearInterval(timer);$('offline').classList.remove('hidden');$('online').classList.add('hidden');}
 }
 function showNativeError(message=''){ $('nativeError').textContent=message; $('nativeError').classList.toggle('hidden',!message); }
@@ -168,17 +179,14 @@ async function sendToNativeHost(type,options,extra={}){
 
 $('startHelper').onclick=async()=>{
   showNativeError();
-  const type=$('launchType').value;
-  const value=$('bundleFolder').value.trim().replace(/^"|"$/g,'');
-  const options=value?{[type]:value}:{};
-  $('startHelper').disabled=true;$('startHelper').textContent='Starting…';
+  $('startHelper').disabled=true;$('startHelper').textContent='Connecting…';
   try{
-    const response=await sendToNativeHost('start',options);
+    const response=await sendToNativeHost('start',{});
     if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
   }catch(e){
-    showNativeError(`${e.message} — see "Manual start" below if this is your first time.`);
+    showNativeError(`${e.message} — see "First-time setup" below if this is your first time.`);
   }finally{
-    $('startHelper').disabled=false;$('startHelper').textContent='Start helper';
+    $('startHelper').disabled=false;$('startHelper').textContent='Connect';
   }
 };
 
@@ -195,7 +203,7 @@ chrome.runtime.onMessage.addListener(message=>{
   if(message.type==='picked'){
     if(message.cancelled)return;
     $('artifactPath').value=message.path;
-    $('bundleFolder').value=message.path;
+    // (offline screen no longer has a path input)
     if(message.applied&&message.snapshot){
       state=message.snapshot;render();showError();
     }else if(message.message){
@@ -217,9 +225,6 @@ chrome.runtime.onMessage.addListener(message=>{
   if(message.type==='watch-detected'){
     watchState={...watchState,projectRoot:message.projectRoot,scripts:message.scripts||{},suggested:message.suggested};
     renderWatch();
-    if(message.projectRoot&&message.suggested&&$('autoStartWatch').checked&&!watchState.running){
-      sendToNativeHost('watch-start',{projectRoot:message.projectRoot,scriptName:message.suggested}).catch(()=>{});
-    }
   }
   if(message.type==='watch-status'){
     watchState={...watchState,running:Boolean(message.running),log:message.log||watchState.log};
@@ -232,58 +237,89 @@ async function copyCommand(button,command){
   await navigator.clipboard.writeText(command);
   const original=button.textContent;button.textContent='Copied';setTimeout(()=>button.textContent=original,1200);
 }
-function updateLaunchCommand(){
-  const type=$('launchType').value,value=$('bundleFolder').value.trim().replace(/^"|"$/g,'');
-  const flag=type==='html'?'--html':type==='script'?'--script':'--bundle';
-  $('launchCommand').textContent=`pcf-local-override launch ${flag} "${value||'C:\\path\\to\\bundle-folder'}"`;
-}
-$('launchType').onchange=updateLaunchCommand;$('bundleFolder').oninput=updateLaunchCommand;
 $('copy').onclick=e=>copyCommand(e.currentTarget,$('launchCommand').textContent);
 $('refreshTabs').onclick=()=>loadTabs().catch(e=>showError(e.message));
+
+const TYPE_HINTS={
+  pcf:"Point this at any folder - it'll be searched for PCF bundles.",
+  script:"Point this at your web resources folder - it'll be searched for .js files (PCF bundles excluded).",
+  html:"Point this at your web resources folder - it'll be searched for .html files."
+};
+
+function currentType(){ return $('overrideType').value; }
+
+$('overrideType').onchange=()=>{
+  $('artifactHint').textContent=TYPE_HINTS[currentType()];
+  // Each type usually lives in a different folder, so remember paths per type
+  // rather than carrying one folder across all three.
+  chrome.storage?.local?.get(['lastPathByType'],r=>{
+    $('artifactPath').value=(r.lastPathByType||{})[currentType()]||'';
+  });
+  $('bundle').replaceChildren();
+  $('bundleFilter').classList.add('hidden');
+  $('candidates').replaceChildren();
+  allCandidates=[];
+  $('candidateFilter').classList.add('hidden');
+};
 
 $('addOverrideToggle').onclick=()=>{
   const opening=$('addPanel').classList.contains('hidden');
   $('addPanel').classList.toggle('hidden');
   $('addOverrideToggle').textContent=opening?'Cancel':'+ Add override';
-  if(!opening){showError();$('candidates').replaceChildren();allCandidates=[];$('candidateFilter').classList.add('hidden');$('candidateFilter').value='';}
+  if(opening){
+    $('artifactHint').textContent=TYPE_HINTS[currentType()];
+    chrome.storage?.local?.get(['lastPathByType'],r=>{
+      if(!$('artifactPath').value)$('artifactPath').value=(r.lastPathByType||{})[currentType()]||'';
+    });
+  }else{
+    showError();$('candidates').replaceChildren();allCandidates=[];
+    $('candidateFilter').classList.add('hidden');$('candidateFilter').value='';
+  }
 };
 
-async function browse(mode,targetInputId){
-  const button=targetInputId==='bundleFolder'?$('browseStartFolder'):(mode==='folder'?$('browseFolder'):$('browseFile'));
+async function browse(mode){
+  const button=mode==='folder'?$('browseFolder'):$('browseFile');
   const original=button.textContent;
   button.disabled=true;button.textContent='Opening…';
   try{
-    const response=await sendToNativeHost('pick',undefined,{mode});
+    const response=await sendToNativeHost('pick',undefined,{mode,resourceType:currentType()});
     if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
   }catch(e){
-    const show=targetInputId==='bundleFolder'?showNativeError:showError;
-    show(`${e.message} — paste the path manually instead.`);
+    showError(`${e.message} — paste the path manually instead.`);
   }finally{
     button.disabled=false;button.textContent=original;
   }
 }
 
-$('browseFolder').onclick=()=>browse('folder','artifactPath');
-$('browseFile').onclick=()=>browse('file','artifactPath');
-$('browseStartFolder').onclick=()=>browse('folder','bundleFolder');
+$('browseFolder').onclick=()=>browse('folder');
+$('browseFile').onclick=()=>browse('file');
 
 $('selectArtifact').onclick=async()=>{
   showError();
   const value=$('artifactPath').value.trim().replace(/^"|"$/g,'');
-  if(!value){showError('Enter or paste a local file or folder path.');return;}
+  if(!value){showError('Enter or paste a folder or file path.');return;}
+  const type=currentType();
   $('selectArtifact').disabled=true;
   try{
-    state=await api('/artifact',{path:value});
+    state=await api('/artifact',{path:value,resourceType:type});
     render();
-    chrome.storage?.local?.set({lastArtifactPath:value});
-    if(state.hasArtifact)detectWatch(state.bundles[0]);
+    chrome.storage?.local?.get(['lastPathByType'],r=>{
+      chrome.storage?.local?.set({lastPathByType:{...(r.lastPathByType||{}),[type]:value}});
+    });
   }catch(e){showError(e.message)}
   finally{$('selectArtifact').disabled=false}
 };
 
-chrome.storage?.local?.get(['lastArtifactPath'],r=>{
-  if(r.lastArtifactPath&&!$('artifactPath').value)$('artifactPath').value=r.lastArtifactPath;
-});
+// A solution folder can hold many JS web resources - let the list be filtered.
+$('bundleFilter').oninput=()=>{
+  const needle=$('bundleFilter').value.trim().toLowerCase();
+  const matches=needle?state.bundles.filter(b=>b.toLowerCase().includes(needle)):state.bundles;
+  $('bundle').replaceChildren(...matches.map(v=>option(v,localLabel(v,state.projectRoot))));
+  if(!matches.length)$('bundle').append(option('','No matches for that filter'));
+  updateTypeLabels();
+};
+
+// (per-type path restore happens when the add panel opens / type changes)
 
 // --- PCF build watch (npm run start:watch, automated instead of a manual terminal) ---
 function stripAnsi(text){
@@ -293,23 +329,25 @@ function stripAnsi(text){
 let watchState={projectRoot:null,scripts:{},suggested:null,running:false,log:''};
 
 function renderWatch(){
-  const hasTarget=Boolean(watchState.projectRoot);
-  $('watchTarget').classList.toggle('hidden',!hasTarget);
-  $('watchScript').classList.toggle('hidden',!hasTarget);
-  $('watchScriptLabel').classList.toggle('hidden',!hasTarget);
-  $('startWatch').classList.toggle('hidden',!hasTarget||watchState.running);
+  // The section exists only when a PCF override is actually active - JS and
+  // HTML web resources have no build step, so a build watch is meaningless
+  // for them and shouldn't occupy screen space.
+  const hasPcf=Boolean(activePcfBundlePath());
+  const hasTarget=hasPcf&&Boolean(watchState.projectRoot);
+  $('watchSection').classList.toggle('hidden',!hasTarget);
+  if(!hasTarget)return;
+
+  $('startWatch').classList.toggle('hidden',watchState.running);
   $('stopWatch').classList.toggle('hidden',!watchState.running);
 
-  if(hasTarget){
-    $('watchTarget').textContent=watchState.projectRoot;
-    $('watchHint').textContent=watchState.running?'Running — this is the same build your bundle is served from.':'Detected. Start it here instead of a separate terminal.';
-    const names=Object.keys(watchState.scripts);
-    if(names.length){
-      $('watchScript').replaceChildren(...names.map(n=>option(n,n)));
-      $('watchScript').value=watchState.suggested&&names.includes(watchState.suggested)?watchState.suggested:names[0];
-    }
-  }else{
-    $('watchHint').textContent='Detected automatically once you detect a local file above.';
+  $('watchStateLabel').textContent=watchState.running?'● Running':'○ Stopped';
+  $('watchStateLabel').style.color=watchState.running?'var(--amber)':'var(--text-faint)';
+
+  $('watchTarget').textContent=watchState.projectRoot;
+  const names=Object.keys(watchState.scripts);
+  if(names.length){
+    $('watchScript').replaceChildren(...names.map(n=>option(n,n)));
+    $('watchScript').value=watchState.suggested&&names.includes(watchState.suggested)?watchState.suggested:names[0];
   }
 
   const el=$('watchLog');
@@ -340,11 +378,6 @@ $('stopWatch').onclick=async()=>{
     const response=await sendToNativeHost('watch-stop');
     if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
   }catch(e){showError(e.message)}
-};
-
-chrome.storage?.local?.get(['autoStartWatch'],r=>{$('autoStartWatch').checked=Boolean(r.autoStartWatch);});
-$('autoStartWatch').onchange=()=>{
-  chrome.storage?.local?.set({autoStartWatch:$('autoStartWatch').checked});
 };
 
 let allCandidates=[];
@@ -396,6 +429,10 @@ async function addOverride(resourceUrl){
     $('resourceUrl').value='';$('candidates').replaceChildren();allCandidates=[];
     $('addPanel').classList.add('hidden');$('addOverrideToggle').textContent='+ Add override';
     render();
+    // Detect the build watch target only now - when a PCF override actually
+    // becomes active - rather than when a folder was merely browsed.
+    const pcfPath=activePcfBundlePath();
+    if(pcfPath)detectWatch(pcfPath);
   }catch(e){
     console.error('[PatchPilot] addOverride failed',{tabId:$('tab').value,bundlePath,resourceUrl,error:e});
     showError(e.message);

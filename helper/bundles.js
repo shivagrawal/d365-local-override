@@ -126,7 +126,36 @@ export const resolveHtml = input => resolveTypedFile(input, '.html', '--html', '
  * bundle(.min).js -> pcf
  * other *.js -> script
  */
-export async function resolveArtifact(input) {
+/**
+ * Collect files of one specific type under a folder. Unlike the guessing
+ * path, this returns exactly what was asked for and nothing else.
+ *
+ * 'script' deliberately EXCLUDES bundle(.min).js: a PCF bundle is build
+ * output, not a Dynamics JavaScript web resource, and mixing them into the
+ * same list is noise when the developer has already said which they want.
+ */
+async function collectByType(dir, resourceType, depth, found) {
+  if (depth < 0) return;
+  let entries;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (SKIP_DIRS.includes(entry.name)) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await collectByType(full, resourceType, depth - 1, found);
+      continue;
+    }
+    if (deriveResourceType(entry.name) === resourceType) found.push(full);
+  }
+}
+
+const TYPE_LABELS = { pcf: 'PCF bundle', script: 'JavaScript web resource', html: 'HTML web resource' };
+
+export async function resolveArtifact(input, requestedType = null) {
   const resolved = path.resolve(input);
   let stat;
   try {
@@ -137,6 +166,16 @@ export async function resolveArtifact(input) {
   }
 
   if (stat.isDirectory()) {
+    // Caller stated what they're looking for - find exactly that, no guessing.
+    if (requestedType) {
+      const matches = [];
+      await collectByType(resolved, requestedType, 8, matches);
+      if (!matches.length) {
+        throw new Error(`No ${TYPE_LABELS[requestedType] || requestedType} found anywhere under:\n${resolved}`);
+      }
+      return { bundles: matches, resourceType: requestedType };
+    }
+
     const bundles = await discoverBundles(resolved);
     if (bundles.length) return { bundles, resourceType: 'pcf' };
 
@@ -154,6 +193,9 @@ export async function resolveArtifact(input) {
   const resourceType = deriveResourceType(resolved);
   if (!resourceType) {
     throw new Error(`Unsupported file type "${path.extname(resolved) || 'none'}". Select a .js, .html, or PCF bundle folder:\n${resolved}`);
+  }
+  if (requestedType && resourceType !== requestedType) {
+    throw new Error(`That file is a ${TYPE_LABELS[resourceType]}, not a ${TYPE_LABELS[requestedType]}:\n${resolved}`);
   }
   return { bundles: [resolved], resourceType };
 }

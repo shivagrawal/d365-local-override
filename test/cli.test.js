@@ -164,6 +164,81 @@ test('deriveResourceType classifies files correctly', () => {
 });
 
 
+test('type-filtered: script finds JS web resources and EXCLUDES PCF bundles', async () => {
+  // A PCF bundle is build output, not a Dynamics JavaScript web resource.
+  // When the developer says "JavaScript web resource", bundles are noise.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-typed-'));
+  await fs.mkdir(path.join(root, 'out', 'controls', 'MyControl'), { recursive: true });
+  await fs.writeFile(path.join(root, 'out', 'controls', 'MyControl', 'bundle.js'), 'pcf build output');
+  await fs.writeFile(path.join(root, 'wesco_cancelorder.js'), 'web resource');
+  await fs.writeFile(path.join(root, 'wesco_charges.js'), 'web resource');
+  await fs.writeFile(path.join(root, 'dialog.html'), '<h1>x</h1>');
+
+  const result = await resolveArtifact(root, 'script');
+
+  assert.equal(result.resourceType, 'script');
+  assert.equal(result.bundles.length, 2, 'only the two real JS web resources');
+  assert.ok(!result.bundles.some(b => b.endsWith('bundle.js')), 'a PCF bundle must never appear in a script search');
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test('type-filtered: pcf finds only bundles, ignoring JS and HTML web resources', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-typed-'));
+  await fs.mkdir(path.join(root, 'out', 'controls', 'MyControl'), { recursive: true });
+  const bundle = path.join(root, 'out', 'controls', 'MyControl', 'bundle.js');
+  await fs.writeFile(bundle, 'pcf');
+  await fs.writeFile(path.join(root, 'wesco_cancelorder.js'), 'web resource');
+  await fs.writeFile(path.join(root, 'dialog.html'), '<h1>x</h1>');
+
+  const result = await resolveArtifact(root, 'pcf');
+  assert.deepEqual(result.bundles, [bundle]);
+  assert.equal(result.resourceType, 'pcf');
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test('type-filtered: html finds only HTML web resources', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-typed-'));
+  await fs.writeFile(path.join(root, 'dialog.html'), '<h1>x</h1>');
+  await fs.writeFile(path.join(root, 'legacy.htm'), '<h1>y</h1>');
+  await fs.writeFile(path.join(root, 'wesco_cancelorder.js'), 'web resource');
+
+  const result = await resolveArtifact(root, 'html');
+  assert.equal(result.bundles.length, 2);
+  assert.ok(result.bundles.every(b => /\.html?$/.test(b)));
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test('type-filtered: a clear error names the type that was searched for', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-typed-'));
+  await fs.writeFile(path.join(root, 'wesco_cancelorder.js'), 'web resource');
+
+  await assert.rejects(() => resolveArtifact(root, 'pcf'), /No PCF bundle found anywhere under/);
+  await assert.rejects(() => resolveArtifact(root, 'html'), /No HTML web resource found anywhere under/);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test('type-filtered: selecting a single file of the wrong type is rejected with both types named', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-typed-'));
+  const jsFile = path.join(dir, 'wesco_cancelorder.js');
+  await fs.writeFile(jsFile, 'web resource');
+
+  await assert.rejects(
+    () => resolveArtifact(jsFile, 'html'),
+    /is a JavaScript web resource, not a HTML web resource/
+  );
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test('untyped discovery still guesses, keeping the CLI and existing callers working', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-typed-'));
+  await fs.mkdir(path.join(root, 'out', 'controls', 'MyControl'), { recursive: true });
+  await fs.writeFile(path.join(root, 'out', 'controls', 'MyControl', 'bundle.js'), 'pcf');
+
+  const result = await resolveArtifact(root); // no type argument
+  assert.equal(result.resourceType, 'pcf');
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test('parses launch options', () => {
   assert.deepEqual(parseLaunchArgs(['--root', 'C:\\project', '--bundle', 'C:\\project\\bundle.js']), {
     root: 'C:\\project', bundle: 'C:\\project\\bundle.js'

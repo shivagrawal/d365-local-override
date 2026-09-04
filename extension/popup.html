@@ -15,28 +15,23 @@
 </header>
 
 <div id="offline" class="notice hidden" style="margin-top:10px">
-  <div class="notice-title">Helper is offline</div>
-  <label for="launchType">Override type</label>
-  <select id="launchType"><option value="bundle">PCF bundle</option><option value="script">Model-Driven JavaScript</option><option value="html">Model-Driven HTML</option></select>
-  <p id="pathHelp" class="hint">Paste the folder containing <code>bundle.js</code>, or leave blank and pick a file after starting.</p>
-  <label id="pathLabel" for="bundleFolder">Bundle folder or bundle.js path (optional)</label>
-  <input id="bundleFolder" class="path-input" type="text" placeholder="C:\path\to\out\controls\MyControl">
-  <button id="browseStartFolder" class="secondary-button full-width">Browse…</button>
-  <button id="startHelper" class="primary-button full-width">Start helper</button>
+  <div class="notice-title">Not connected</div>
+  <p class="hint">Opens the development browser and gets ready to serve local files. You'll choose what to override after connecting.</p>
+  <button id="startHelper" class="primary-button full-width">Connect</button>
   <div id="nativeError" class="error hidden"></div>
   <details class="guide">
-    <summary>Manual start (first-time setup / fallback)</summary>
+    <summary>First-time setup / fallback</summary>
     <div class="body">
-      <p class="hint">"Start helper" needs a one-time native messaging registration. Run once from the repo root, using the ID shown on this extension's card at <code>chrome://extensions</code>.</p>
+      <p class="hint">"Connect" needs a one-time native messaging registration. Run once from the repo root, using the ID shown on this extension's card at <code>chrome://extensions</code>.</p>
       <div class="command-row"><code>install-native-host.cmd &lt;extension-id&gt;</code></div>
-      <p class="hint">Or start the helper from a terminal directly:</p>
-      <div class="command-row"><code id="launchCommand">pcf-local-override launch --bundle "C:\path\to\bundle-folder"</code><button id="copy" class="secondary-button">Copy</button></div>
+      <p class="hint">Or start it from a terminal directly:</p>
+      <div class="command-row"><code id="launchCommand">pcf-local-override launch</code><button id="copy" class="secondary-button">Copy</button></div>
     </div>
   </details>
 </div>
 
 <div id="online" class="hidden">
-  <div class="live-status"><span id="statusDot" class="dot"></span><span id="statusLine">Helper connected</span></div>
+  <div class="live-status"><span id="statusDot" class="dot"></span><span id="statusLine">Connected</span></div>
 
   <div class="section">
     <label for="tab" style="margin-top:0">Dynamics tab</label>
@@ -50,16 +45,25 @@
     <button id="addOverrideToggle" class="secondary-button full-width">+ Add override</button>
 
     <div id="addPanel" class="add-panel hidden">
-      <label for="artifactPath" style="margin-top:0">Project folder or file to detect from</label>
-      <p class="hint">Point this at your PCF project, a solution folder, or a specific file.</p>
-      <input id="artifactPath" class="path-input" type="text" placeholder="C:\path\to\out\controls\MyControl">
+      <label for="overrideType" style="margin-top:0">What are you overriding?</label>
+      <select id="overrideType">
+        <option value="pcf">PCF bundle</option>
+        <option value="script">JavaScript web resource</option>
+        <option value="html">HTML web resource</option>
+      </select>
+
+      <label for="artifactPath">Folder to search</label>
+      <p class="hint" id="artifactHint">Point this at any folder - it'll be searched for PCF bundles.</p>
+      <input id="artifactPath" class="path-input" type="text" placeholder="C:\path\to\your\project">
       <div class="command-row"><button id="browseFolder" class="secondary-button">Browse folder…</button><button id="browseFile" class="secondary-button">Browse file…</button></div>
-      <button id="selectArtifact" class="secondary-button full-width">Detect local file(s)</button>
-      <label id="localFileLabel">Local bundle</label>
+      <button id="selectArtifact" class="secondary-button full-width">Find local files</button>
+
+      <label id="localFileLabel">Local file</label>
+      <input id="bundleFilter" class="path-input hidden" type="text" placeholder="Filter by filename…">
       <select id="bundle"></select>
 
-      <label id="dynamicsResourceLabel">Dynamics bundle</label>
-      <button id="scan" class="secondary-button full-width">Find Dynamics bundle</button>
+      <label id="dynamicsResourceLabel">Dynamics resource</label>
+      <button id="scan" class="secondary-button full-width">Find Dynamics resource</button>
       <input id="candidateFilter" class="path-input hidden" type="text" placeholder="Filter by filename…">
       <div id="candidates"></div>
       <label for="resourceUrl">Or paste the exact resource URL</label>
@@ -71,18 +75,16 @@
   <div class="section">
     <label class="switch-row" style="margin-top:0">Enable overrides <input id="override" type="checkbox"></label>
     <button id="reload" class="primary-button full-width">Reload Dynamics now</button>
-    <button id="stopHelper" class="secondary-button full-width">Stop helper</button>
+    <button id="stopHelper" class="secondary-button full-width">Disconnect</button>
   </div>
 
-  <div class="section">
-    <div class="section-head"><span class="section-title">Build watch</span></div>
-    <p class="hint" id="watchHint" style="margin-top:0">Detected automatically once you detect a local file above.</p>
-    <div id="watchTarget" class="value-box muted hidden"></div>
-    <label for="watchScript" id="watchScriptLabel" class="hidden">Script to run</label>
-    <select id="watchScript" class="hidden"></select>
+  <div class="section hidden" id="watchSection">
+    <div class="section-head"><span class="section-title">Build watch</span><span id="watchStateLabel" class="hint" style="margin:0"></span></div>
+    <div id="watchTarget" class="value-box muted"></div>
+    <label for="watchScript" id="watchScriptLabel">Script to run</label>
+    <select id="watchScript"></select>
     <button id="startWatch" class="secondary-button full-width hidden">Start build watch</button>
     <button id="stopWatch" class="secondary-button full-width hidden">Stop build watch</button>
-    <label class="switch-row"><input id="autoStartWatch" type="checkbox"> Start automatically with helper</label>
     <details>
       <summary>Build watch log</summary>
       <div id="watchLog" class="log-panel">Not running</div>
@@ -98,10 +100,10 @@
 <details class="guide">
   <summary>How to run — step by step</summary>
   <ol>
-    <li><strong>One-time helper setup</strong><p>Run <code>install-native-host.cmd &lt;extension-id&gt;</code> once from this repo (ID is on this extension's card at <code>chrome://extensions</code>). After this, "Start helper" needs no terminal.</p></li>
-    <li><strong>Open Dynamics, click this extension, click "Start helper"</strong></li>
+    <li><strong>One-time helper setup</strong><p>Run <code>install-native-host.cmd &lt;extension-id&gt;</code> once from this repo (ID is on this extension's card at <code>chrome://extensions</code>). After this, "Connect" needs no terminal.</p></li>
+    <li><strong>Open Dynamics, click this extension, click "Connect"</strong></li>
     <li><strong>Add an override</strong><p>Click "+ Add override", browse to your file, scan for the matching Dynamics resource, then click "Add this override". Repeat to override more than one file at once.</p></li>
-    <li><strong>Build watch</strong><p>Detected automatically. Click "Start build watch" once, or check "Start automatically with helper" so it's one click going forward.</p></li>
+    <li><strong>Build watch</strong><p>Appears automatically when a PCF override is active, pointed at that control's own project. Click "Start build watch" to run its npm watch script here instead of a separate terminal.</p></li>
   </ol>
 </details>
 

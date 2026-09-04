@@ -33,12 +33,12 @@ export class Controller {
    * CDP session, or file watchers - browsing for one more file to override
    * must not disturb overrides that are already working.
    */
-  async setArtifact(inputPath) {
+  async setArtifact(inputPath, requestedType = null) {
     if (!inputPath || typeof inputPath !== 'string' || !inputPath.trim()) {
       throw new Error('Select a local bundle, JavaScript, or HTML file.');
     }
 
-    const { bundles, resourceType } = await resolveArtifact(inputPath.trim());
+    const { bundles, resourceType } = await resolveArtifact(inputPath.trim(), requestedType);
 
     this.bundles = bundles;
     this.resourceType = resourceType;

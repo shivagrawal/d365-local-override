@@ -58,7 +58,7 @@ async function handle(message) {
       // so the developer does not have to confirm the path a second time.
       if (controller) {
         try {
-          const snapshot = await controller.setArtifact(chosen);
+          const snapshot = await controller.setArtifact(chosen, message.resourceType || null);
           send({ type: 'picked', path: chosen, applied: true, snapshot });
         } catch (error) {
           send({ type: 'picked', path: chosen, applied: false, message: error.message });
