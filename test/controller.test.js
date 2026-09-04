@@ -76,6 +76,26 @@ test('constructor defaults to an empty rule set when none is given', () => {
   assert.deepEqual(controller.rules, []);
 });
 
+test('regression: connected reflects the live session only, never a rule\'s autoReload setting', () => {
+  // The Enable-overrides checkbox is driven by snapshot().connected. Turning
+  // auto-reload OFF for a rule must not make the session look disconnected,
+  // or the checkbox reads as unchecked while interception is genuinely
+  // attached and serving.
+  const root = '/tmp/project';
+  const controller = new Controller({
+    root, port: 9222, bundles: [],
+    rules: [ruleEntry({ autoReload: false })]
+  });
+  controller.client = { send: () => Promise.resolve({}), close() {}, on() {} };
+  controller.enabled = true;
+  controller.status = { stage: 'attached', at: Date.now() };
+
+  const snapshot = controller.snapshot();
+  assert.equal(snapshot.connected, true, 'an attached session must report connected regardless of autoReload');
+  assert.equal(snapshot.rules[0].autoReload, false);
+  assert.equal(snapshot.status.stage, 'attached');
+});
+
 test('snapshot exposes the fields the extension popup renders', () => {
   const controller = new Controller({
     root: '/tmp/project', port: 9222, bundles: ['/tmp/project/bundle.js'],

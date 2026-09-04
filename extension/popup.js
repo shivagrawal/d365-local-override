@@ -527,8 +527,19 @@ async function addOverride(resourceUrl){
 
 $('override').onchange=async e=>{
   const requested=e.target.checked;togglePending=true;e.target.disabled=true;showError();
-  try{state=await api(requested?'/enable':'/disable',{});render();}
-  catch(x){e.target.checked=Boolean(state?.connected);showError(x.name==='TimeoutError'?'Override activation timed out. Check the helper and Chrome connection.':x.message)}
+  try{
+    state=await api(requested?'/enable':'/disable',{});
+    // Clear the guard BEFORE rendering: render() skips updating the checkbox
+    // while togglePending is set, so rendering inside the guarded window left
+    // the checkbox showing whatever the browser had set, never synced from
+    // the actual server response.
+    togglePending=false;
+    render();
+  }catch(x){
+    togglePending=false;
+    e.target.checked=Boolean(state?.connected);
+    showError(x.name==='TimeoutError'?'Override activation timed out. Check the helper and Chrome connection.':x.message);
+  }
   finally{togglePending=false;e.target.disabled=false}
 };
 
