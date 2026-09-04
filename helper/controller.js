@@ -334,6 +334,10 @@ export class Controller {
             this.enable().catch(error => {
               this.enabled = false;
               this.status = { stage: 'error', message: error.message, at: Date.now() };
+              // Reconnect failed - the tab or the whole dev browser is gone.
+              // Whatever this session was driving (build watches) should stop
+              // too rather than keep running with nothing to serve.
+              this.onSessionLost?.();
             });
           }, 500);
         }

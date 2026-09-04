@@ -7,7 +7,7 @@
 import { launch } from './main.js';
 import { pickPath } from './picker.js';
 import { detectWatchTarget } from './pcf-watch.js';
-import { PcfWatcherPool } from './pcf-watcher-pool.js';
+import { PcfWatcherPool, sweepOrphanedWatches } from './pcf-watcher-pool.js';
 import { encodeMessage, createDecoder } from './native-protocol.js';
 
 console.log = (...args) => console.error(...args);
@@ -41,9 +41,22 @@ async function handle(message) {
         send({ type: 'status', stage: 'already-running', snapshot: controller.snapshot() });
         return;
       }
+      // A previous session may have been killed rather than shut down
+      // cleanly, leaving a watch running with nothing driving it. Clean those
+      // up before starting - only roots this tool recorded are touched.
+      await sweepOrphanedWatches().catch(() => {});
+
       const result = await launch(message.options || {});
       controller = result.controller;
       server = result.server;
+
+      // If the dev browser is closed, the CDP session is gone for good and
+      // every build watch it was feeding is pointless - stop them rather
+      // than leave webpack running invisibly.
+      controller.onSessionLost = () => {
+        watchers.stopAll().catch(() => {});
+        send({ type: 'watch-status', watches: watchers.snapshots() });
+      };
       // Lets /shutdown (reachable from any browser window over HTTP) perform
       // the same full teardown as a native-messaging 'stop'.
       controller.onShutdown = async () => {

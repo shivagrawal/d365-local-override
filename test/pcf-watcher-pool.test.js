@@ -1,7 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { PcfWatcherPool } from '../helper/pcf-watcher-pool.js';
+
+// Redirect the on-disk watch registry into a temp HOME before the pool
+// module resolves its path at import time.
+const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'pool-home-'));
+process.env.HOME = fakeHome;
+process.env.USERPROFILE = fakeHome;
+
+const { PcfWatcherPool, sweepOrphanedWatches } = await import('../helper/pcf-watcher-pool.js');
+
+const registryPath = path.join(fakeHome, '.pcf-local-override', 'active-watches.json');
+const readRegistry = () => {
+  try { return JSON.parse(fs.readFileSync(registryPath, 'utf8')).roots; }
+  catch { return []; }
+};
+// All tests in this file share one on-disk registry, so registry-specific
+// tests must start from a known-empty state rather than inheriting whatever
+// earlier tests recorded.
+const clearRegistry = () => { try { fs.rmSync(registryPath); } catch {} };
 
 function fakeChild(pid = 999999) {
   const child = new EventEmitter();
@@ -110,4 +130,56 @@ test('snapshots carry per-project detail so the UI can render each watch separat
   assert.equal(byRoot['/proj/A'].scriptName, 'start:watch');
   assert.equal(byRoot['/proj/B'].scriptName, 'build:watch');
   assert.equal(byRoot['/proj/A'].running, true);
+});
+
+
+test('starting a watch records its project root on disk', () => {
+  clearRegistry();
+  const { pool } = poolWithSpies();
+  pool.start('/proj/RecordMe', 'start:watch');
+  assert.ok(readRegistry().includes('/proj/RecordMe'), 'the root must be persisted so a crashed session can be cleaned up later');
+});
+
+test('stopping a watch removes its root from the registry', async () => {
+  const { pool } = poolWithSpies();
+  pool.start('/proj/ForgetMe', 'start:watch');
+  await pool.stop('/proj/ForgetMe');
+  assert.ok(!readRegistry().includes('/proj/ForgetMe'), 'a cleanly stopped watch must not be swept later');
+});
+
+test('stopAll clears every recorded root', async () => {
+  clearRegistry();
+  const { pool } = poolWithSpies();
+  pool.start('/proj/A1', 'start:watch');
+  pool.start('/proj/B1', 'start:watch');
+  await pool.stopAll();
+  assert.deepEqual(readRegistry(), [], 'no roots should remain recorded after a full stop');
+});
+
+test('regression: sweepOrphanedWatches kills roots left behind by a crashed session', async () => {
+  // Reproduces a real orphan: a watch started by a session that was killed
+  // rather than shut down cleanly kept running indefinitely, because none of
+  // the in-process cleanup ever ran.
+  clearRegistry();
+  const { pool } = poolWithSpies();
+  pool.start('/proj/Orphaned', 'start:watch');
+  pool.watchers.clear(); // simulate the process dying without cleanup
+
+  assert.ok(readRegistry().includes('/proj/Orphaned'), 'precondition: the root is still recorded');
+
+  const killed = [];
+  const fakeExecFile = (cmd, args, cb) => { killed.push({ cmd, args }); cb(); };
+  const result = await sweepOrphanedWatches(fakeExecFile);
+
+  assert.equal(result.swept, 1);
+  assert.equal(killed.length, 1, 'the orphaned root must actually be killed');
+  assert.deepEqual(readRegistry(), [], 'the registry must be cleared after sweeping');
+});
+
+test('sweepOrphanedWatches is a no-op when nothing was left behind', async () => {
+  clearRegistry();
+  const killed = [];
+  const result = await sweepOrphanedWatches((cmd, args, cb) => { killed.push(cmd); cb(); });
+  assert.equal(result.swept, 0);
+  assert.deepEqual(killed, [], 'must never kill anything when the registry is empty');
 });
