@@ -21,10 +21,15 @@ export function isCandidate(value, host, resourceType = 'pcf') {
 
 export function normalizeResource(value) {
   const parts = new URL(value).pathname.split('/').filter(Boolean).map(decodeURIComponent);
-  return `/${parts.map((part, index) => {
-    const volatile = /^\{[^}]+\}$/.test(part) || /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(part);
-    const controlName = parts[index - 1]?.toLowerCase() === 'webresources' && parts[index + 1] && !BUNDLE.test(parts[index + 1]);
-    return volatile || controlName ? ':resource' : part.toLowerCase();
+  return `/${parts.map(part => {
+    // Only the version GUID is volatile - it rotates on every publish. The
+    // control/resource name that follows "webresources" is the resource's
+    // IDENTITY and must be preserved: blanking it made every PCF bundle URL
+    // normalize to the same string, so one control's rule matched every
+    // other control's bundle request and served it the wrong file.
+    const volatile = /^\{[^}]+\}$/.test(part) ||
+      /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(part);
+    return volatile ? ':resource' : part.toLowerCase();
   }).join('/')}`;
 }
 

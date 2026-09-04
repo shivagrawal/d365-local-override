@@ -137,7 +137,7 @@ function render(){
   $('bundle').replaceChildren(...state.bundles.map(v=>option(v,localLabel(v,state.projectRoot))));
   if(!state.hasArtifact)$('bundle').append(option('','No local file selected yet'));
   $('bundleFilter').classList.toggle('hidden',(state.bundles?.length||0)<6);
-  if(state.hasArtifact&&!$('artifactPath').value)$('artifactPath').value=state.bundles[0];
+  // (path field is prefilled from per-type memory when the panel opens, not forced on every refresh)
   $('scan').disabled=!state.hasArtifact;
   updateTypeLabels();
   if(!togglePending)$('override').checked=Boolean(state.connected);
