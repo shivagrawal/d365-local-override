@@ -66,6 +66,57 @@ test('regression: an unrelated package.json along the walk is skipped, not treat
   await fs.rm(fakeHome, { recursive: true, force: true });
 });
 
+test('regression: a repo-level package.json above the real PCF project is not mistaken for the project root', async () => {
+  // Reproduces the reported layout exactly:
+  //   QOE-PCF-AddPartsManagement/        <- repo package.json, no pcf-scripts
+  //     SOM_AddPartsManagement/
+  //       AddPartsManagement/            <- real PCF project
+  //         out/controls/X/bundle.js
+  // Picking the repo root means "npm run start:watch" runs where that script
+  // doesn't exist, which is exactly the failure that was reported.
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'QOE-PCF-'));
+  await fs.writeFile(path.join(repoRoot, 'package.json'), JSON.stringify({
+    name: 'repo-level', scripts: { lint: 'eslint .' }
+  }));
+
+  const projectRoot = path.join(repoRoot, 'SOM_AddPartsManagement', 'AddPartsManagement');
+  await fs.mkdir(projectRoot, { recursive: true });
+  await fs.writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
+    name: 'AddPartsManagement',
+    scripts: { 'start:watch': 'pcf-scripts start watch' },
+    devDependencies: { 'pcf-scripts': '^1.0.0' }
+  }));
+  await fs.writeFile(path.join(projectRoot, 'ControlManifest.Input.xml'), '<manifest/>');
+
+  const bundleDir = path.join(projectRoot, 'out', 'controls', 'AddPartsManagement');
+  await fs.mkdir(bundleDir, { recursive: true });
+  const bundlePath = path.join(bundleDir, 'bundle.js');
+  await fs.writeFile(bundlePath, 'b');
+
+  const found = await findPcfProjectRoot(bundlePath);
+  assert.equal(found, projectRoot, 'must find the nested PCF project, not the repo root above it');
+
+  const detected = await detectWatchTarget(bundlePath);
+  assert.equal(detected.suggested, 'start:watch', 'the suggested script must come from the PCF project package.json');
+
+  await fs.rm(repoRoot, { recursive: true, force: true });
+});
+
+test('regression: a ControlManifest without a pcf-scripts package.json beside it is not accepted alone', async () => {
+  // A stray manifest next to a package.json with no scripts is not a
+  // runnable project - accepting it would suggest a script that can't run.
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-stray-'));
+  await fs.writeFile(path.join(dir, 'ControlManifest.Input.xml'), '<manifest/>');
+  await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: 'no-scripts' }));
+
+  const bundlePath = path.join(dir, 'bundle.js');
+  await fs.writeFile(bundlePath, 'b');
+
+  assert.equal(await findPcfProjectRoot(bundlePath), null);
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+
 test('readNpmScripts returns {} for a missing or malformed package.json rather than throwing', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pcf-watch-bad-'));
   assert.deepEqual(await readNpmScripts(dir), {});

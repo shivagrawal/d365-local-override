@@ -3,17 +3,32 @@ import path from 'node:path';
 
 const CANDIDATE_SCRIPTS = ['start:watch', 'watch', 'dev', 'start'];
 
+/**
+ * A directory is the PCF project root only if its OWN package.json declares
+ * pcf-scripts. A ControlManifest.Input.xml alone is not sufficient: in a repo
+ * like QOE-PCF-X/SOM_X/X/, the manifest sits beside the real project's
+ * package.json while a repo-level package.json sits several levels above.
+ * Accepting the manifest without checking that directory's own package.json
+ * risks returning a root whose npm scripts don't exist, so "npm run
+ * start:watch" fails with a missing-script error.
+ */
 async function looksLikePcfProject(dir) {
-  try {
-    await fs.access(path.join(dir, 'ControlManifest.Input.xml'));
-    return true;
-  } catch {
-    // fall through to checking package.json's dependencies
-  }
   try {
     const raw = await fs.readFile(path.join(dir, 'package.json'), 'utf8');
     const parsed = JSON.parse(raw);
-    return Boolean(parsed.dependencies?.['pcf-scripts'] || parsed.devDependencies?.['pcf-scripts']);
+    if (parsed.dependencies?.['pcf-scripts'] || parsed.devDependencies?.['pcf-scripts']) return true;
+
+    // Fallback for projects that vendor pcf-scripts differently: accept a
+    // package.json that has scripts AND a ControlManifest beside it.
+    if (parsed.scripts && Object.keys(parsed.scripts).length) {
+      try {
+        await fs.access(path.join(dir, 'ControlManifest.Input.xml'));
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
   } catch {
     return false;
   }

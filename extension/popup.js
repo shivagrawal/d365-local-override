@@ -90,7 +90,24 @@ function renderRulesList(){
     remove.textContent='×';
     remove.title='Remove this override';
     remove.onclick=async()=>{
-      try{state=await api('/remove-rule',{ruleId:rule.id});render();}
+      try{
+        const removedPcfPath=rule.resourceType==='pcf'?rule.bundlePath:null;
+        state=await api('/remove-rule',{ruleId:rule.id});
+        render();
+        // If that was the last PCF override for its project, its build watch
+        // has nothing left to serve - stop it rather than leave webpack
+        // running invisibly.
+        if(removedPcfPath){
+          const stillUsed=(state.rules||[]).some(r=>r.resourceType==='pcf'&&r.bundlePath===removedPcfPath);
+          const projectRoot=Object.keys(watchTargets).find(p=>removedPcfPath.toLowerCase().startsWith(p.toLowerCase()));
+          if(!stillUsed&&projectRoot){
+            sendToNativeHost('watch-stop',{projectRoot}).catch(()=>{});
+            delete watchTargets[projectRoot];
+            delete liveWatches[projectRoot];
+            renderWatch();
+          }
+        }
+      }
       catch(e){showError(e.message)}
     };
 
@@ -198,10 +215,21 @@ $('startHelper').onclick=async()=>{
 
 $('stopHelper').onclick=async()=>{
   showError();
+  $('stopHelper').disabled=true;$('stopHelper').textContent='Disconnecting…';
   try{
-    const response=await sendToNativeHost('stop');
-    if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
+    // Each browser window's extension has its OWN native host process, so a
+    // Disconnect clicked in the dev window reaches a host that never started
+    // anything. Ask the running helper over HTTP as well - whichever window
+    // this is, that reaches the one helper that actually owns the session.
+    await sendToNativeHost('stop').catch(()=>{});
+    await api('/shutdown',{}).catch(()=>{});
   }catch(e){showError(e.message)}
+  finally{
+    $('stopHelper').disabled=false;$('stopHelper').textContent='Disconnect';
+    clearInterval(timer);
+    $('online').classList.add('hidden');$('offline').classList.remove('hidden');
+    chrome.tabs.query({url:'https://*.dynamics.com/*'}).then(tabs=>tabs.forEach(t=>chrome.tabs.sendMessage(t.id,{active:false}).catch(()=>{})));
+  }
 };
 
 chrome.runtime.onMessage.addListener(message=>{
@@ -353,60 +381,90 @@ function renderWatch(){
   // for them and shouldn't occupy screen space.
   const projects=activePcfBundlePath()?activePcfProjects():[];
   $('watchSection').classList.toggle('hidden',!projects.length);
-  if(!projects.length)return;
+  if(!projects.length){ $('watchList').replaceChildren(); return; }
 
   const runningCount=projects.filter(p=>liveWatches[p]?.running).length;
   $('watchStateLabel').textContent=runningCount?`● ${runningCount} running`:'○ Stopped';
   $('watchStateLabel').style.color=runningCount?'var(--amber)':'var(--text-faint)';
 
-  $('watchList').replaceChildren(...projects.map(projectRoot=>{
+  // Remove rows for projects that are no longer active (override removed).
+  for(const existing of [...$('watchList').children]){
+    if(!projects.includes(existing.dataset.project))existing.remove();
+  }
+
+  for(const projectRoot of projects){
     const target=watchTargets[projectRoot]||{scripts:{},suggested:null};
     const live=liveWatches[projectRoot]||{running:false,log:''};
+    let row=[...$('watchList').children].find(c=>c.dataset.project===projectRoot);
 
-    const row=document.createElement('div');
-    row.className='watch-row';
+    if(!row){
+      // Build the row once. Rebuilding it on every refresh would reset the
+      // script <select> and collapse an expanded log while the user reads it.
+      row=document.createElement('div');
+      row.className='watch-row';
+      row.dataset.project=projectRoot;
 
-    const head=document.createElement('div');
-    head.className='watch-head';
-    const dot=document.createElement('span');
-    dot.className='dot'+(live.running?' on':'');
-    const name=document.createElement('span');
-    name.className='watch-name';
-    name.textContent=projectRoot.split(/[\\/]/).filter(Boolean).pop()||projectRoot;
-    name.title=projectRoot;
-    head.append(dot,name);
+      const head=document.createElement('div');
+      head.className='watch-head';
+      const dot=document.createElement('span');
+      dot.className='dot';
+      const name=document.createElement('span');
+      name.className='watch-name';
+      name.textContent=projectRoot.split(/[\\/]/).filter(Boolean).pop()||projectRoot;
+      name.title=projectRoot;
+      head.append(dot,name);
 
-    const scriptSelect=document.createElement('select');
+      const scriptSelect=document.createElement('select');
+      const button=document.createElement('button');
+      button.className='secondary-button full-width';
+
+      const logBox=document.createElement('details');
+      const summary=document.createElement('summary');
+      summary.textContent='Build watch log';
+      const logView=document.createElement('div');
+      logView.className='log-panel';
+      logBox.append(summary,logView);
+
+      button.onclick=async()=>{
+        const isRunning=Boolean(liveWatches[projectRoot]?.running);
+        button.disabled=true;
+        try{
+          const response=isRunning
+            ? await sendToNativeHost('watch-stop',{projectRoot})
+            : await sendToNativeHost('watch-start',{projectRoot,scriptName:scriptSelect.value});
+          if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
+        }catch(e){showError(e.message)}
+        finally{button.disabled=false}
+      };
+
+      row.append(head,scriptSelect,button,logBox);
+      $('watchList').append(row);
+    }
+
+    // Update in place, leaving user interaction state (selection, expanded
+    // log, scroll position) untouched.
+    const [head,scriptSelect,button,logBox]=row.children;
+    head.firstChild.className='dot'+(live.running?' on':'');
+
     const names=Object.keys(target.scripts);
-    scriptSelect.replaceChildren(...names.map(n=>option(n,n)));
-    if(target.suggested&&names.includes(target.suggested))scriptSelect.value=target.suggested;
+    const existingOptions=[...scriptSelect.options].map(o=>o.value);
+    if(names.length&&String(existingOptions)!==String(names)){
+      const previous=scriptSelect.value;
+      scriptSelect.replaceChildren(...names.map(n=>option(n,n)));
+      scriptSelect.value=names.includes(previous)?previous
+        :(target.suggested&&names.includes(target.suggested)?target.suggested:names[0]);
+    }
     scriptSelect.disabled=live.running;
-
-    const button=document.createElement('button');
-    button.className='secondary-button full-width';
     button.textContent=live.running?'Stop build watch':'Start build watch';
-    button.onclick=async()=>{
-      button.disabled=true;
-      try{
-        const response=live.running
-          ? await sendToNativeHost('watch-stop',{projectRoot})
-          : await sendToNativeHost('watch-start',{projectRoot,scriptName:scriptSelect.value});
-        if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
-      }catch(e){showError(e.message)}
-      finally{button.disabled=false}
-    };
 
-    const logBox=document.createElement('details');
-    const summary=document.createElement('summary');
-    summary.textContent='Build watch log';
-    const logView=document.createElement('div');
-    logView.className='log-panel';
-    logView.textContent=live.log?stripAnsi(live.log).slice(-4000):'Not running';
-    logBox.append(summary,logView);
-
-    row.append(head,scriptSelect,button,logBox);
-    return row;
-  }));
+    const logView=logBox.lastChild;
+    const nextLog=live.log?stripAnsi(live.log).slice(-4000):'Not running';
+    if(logView.textContent!==nextLog){
+      const wasAtBottom=logView.scrollTop+logView.clientHeight>=logView.scrollHeight-4;
+      logView.textContent=nextLog;
+      if(wasAtBottom)logView.scrollTop=logView.scrollHeight;
+    }
+  }
 }
 
 async function detectWatch(bundlePath){
@@ -442,26 +500,16 @@ $('scan').onclick=async()=>{
   }catch(e){showError(e.message)}
 };
 
-$('useResourceUrl').onclick=()=>{
-  showError();
-  const value=$('resourceUrl').value.trim();
-  try{
-    const url=new URL(value);
-    if(url.protocol!=='https:'||!/\.dynamics\.com$/i.test(url.hostname))throw new Error('Enter a complete Dynamics HTTPS resource URL.');
-    addOverride(url.href);
-  }catch(e){showError(e.message)}
-};
-
 async function addOverride(resourceUrl){
   const bundlePath=$('bundle').value;
   if(!bundlePath){
-    showError('No local file is selected - click "Detect local file(s)" first.');
+    showError('No local file is selected - click "Find local files" first.');
     console.error('[PatchPilot] addOverride aborted: #bundle has no value',{bundleOptions:[...$('bundle').options].map(o=>o.value)});
     return;
   }
   try{
     state=await api('/rules',{tabId:$('tab').value,bundlePath,resourceUrl});
-    $('resourceUrl').value='';$('candidates').replaceChildren();allCandidates=[];
+    $('candidates').replaceChildren();allCandidates=[];
     $('addPanel').classList.add('hidden');$('addOverrideToggle').textContent='+ Add override';
     render();
     // Detect the build watch target only now - when a PCF override actually

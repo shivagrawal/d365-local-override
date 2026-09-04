@@ -71,6 +71,14 @@ export async function startServer(controller, execFileFn = execFile) {
       else if (req.method === 'POST' && url.pathname === '/disable') result = await controller.disable();
       else if (req.method === 'POST' && url.pathname === '/reload') result = await controller.reload(data.tabId);
       else if (req.method === 'POST' && url.pathname === '/artifact') result = await controller.setArtifact(data.path, data.resourceType);
+      else if (req.method === 'POST' && url.pathname === '/shutdown') {
+        // Reachable from ANY browser window, unlike native messaging which is
+        // per-window. onShutdown tears down the CDP session, every build
+        // watch, and this server itself.
+        json(res, 200, { result: { shuttingDown: true } }, origin);
+        setTimeout(() => { controller.onShutdown?.(); }, 50);
+        return;
+      }
       else if (req.method === 'POST' && url.pathname === '/auto-reload') result = await controller.setAutoReload(data.enabled);
       else return json(res, 404, { error: 'Not found.' }, origin);
 

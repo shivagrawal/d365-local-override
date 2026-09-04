@@ -28,6 +28,15 @@ async function handle(message) {
       const result = await launch(message.options || {});
       controller = result.controller;
       server = result.server;
+      // Lets /shutdown (reachable from any browser window over HTTP) perform
+      // the same full teardown as a native-messaging 'stop'.
+      controller.onShutdown = async () => {
+        await watchers.stopAll().catch(() => {});
+        await controller?.close().catch(() => {});
+        controller = null;
+        if (server) { server.close(); server = null; }
+        send({ type: 'status', stage: 'stopped' });
+      };
       send({ type: 'status', stage: 'started', snapshot: controller.snapshot() });
       return;
     }
