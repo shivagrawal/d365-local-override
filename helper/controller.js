@@ -130,7 +130,20 @@ export class Controller {
     const localName = bundlePath ? comparableName(bundlePath)
       : this.bundles.length ? comparableName(this.bundles[0]) : null;
 
-    return [...found.values()].sort((left, right) => {
+    // Accumulate across scans. A scan only sees what the CURRENT page has
+    // loaded, so a workflow spanning several forms (an HTML page that opens
+    // a PCF form, whose script opens another form) could never surface all
+    // its resources at once. Remembering what earlier scans found lets the
+    // developer walk the flow and end up with the whole catalog.
+    this.discovered ??= new Map();
+    for (const [url, entry] of found) {
+      this.discovered.set(url, { ...entry, seenAt: Date.now() });
+    }
+
+    const all = [...this.discovered.values()]
+      .filter(entry => isCandidate(entry.url, host, resourceType));
+
+    return all.sort((left, right) => {
       if (!localName) return 0;
       const leftName = comparableName(new URL(left.url).pathname);
       const rightName = comparableName(new URL(right.url).pathname);

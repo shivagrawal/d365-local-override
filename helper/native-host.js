@@ -58,16 +58,19 @@ async function handle(message) {
     }
 
     if (message.type === 'stop') {
+      // Stop watches FIRST and unconditionally. Each browser window has its
+      // own native host process, so the window you click Disconnect in may
+      // never have started the helper - but it may still own build watches.
+      // Returning early when there's no controller left those running.
+      await watchers.stopAll();
+
       if (!controller) {
         send({ type: 'status', stage: 'not-running' });
+        send({ type: 'watch-status', watches: watchers.snapshots() });
         return;
       }
       await controller.close();
       controller = null;
-      // A build watch exists to feed the overrides - once those are gone it
-      // has no purpose, and leaving webpack running invisibly is exactly the
-      // orphan problem this tool is supposed to avoid.
-      await watchers.stopAll();
       if (server) {
         await new Promise(resolve => server.close(resolve));
         server = null;

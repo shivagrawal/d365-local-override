@@ -1,9 +1,9 @@
 {
-  "name": "pcf-local-override",
-  "version": "1.2.8",
+  "name": "d365-local-override",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "bin": { "pcf-local-override": "./helper/bin.js" },
+  "bin": { "d365-local-override": "./helper/bin.js" },
   "scripts": { "test": "node --test" },
   "engines": { "node": ">=22" }
 }

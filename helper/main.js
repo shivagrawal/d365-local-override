@@ -63,7 +63,7 @@ export async function launch({ root, bundle, script, html, chromePort = 9222 } =
   // Only hard-fail when the developer explicitly named an artifact or project root.
   // A bare start is legitimate: the extension selects the artifact afterwards.
   if (!bundles.length && explicit) {
-    throw new Error(`No bundle.js found under out, dist, or build in:\n${root}\n\nPass an explicit path from any terminal:\npcf-local-override launch --bundle "C:\\path\\to\\bundle-folder"`);
+    throw new Error(`No bundle.js found under out, dist, or build in:\n${root}\n\nPass an explicit path from any terminal:\nd365-local-override launch --bundle "C:\\path\\to\\bundle-folder"`);
   }
 
   const chrome = await ensureChrome(chromePort);

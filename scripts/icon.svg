@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#152a5e"/>
+      <stop offset="0.55" stop-color="#0d1b3d"/>
+      <stop offset="1" stop-color="#0a1229"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0.4">
+      <stop offset="0" stop-color="#3aa0e8"/>
+      <stop offset="1" stop-color="#38c6f4"/>
+    </linearGradient>
+    <linearGradient id="purple" x1="1" y1="0" x2="0" y2="0.4">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="512" height="512" rx="116" ry="116" fill="url(#bg)"/>
+
+  <!-- top arc, sweeping left-to-right, arrowhead on the right -->
+  <path d="M 92 226
+           A 172 172 0 0 1 296 88"
+        fill="none" stroke="url(#blue)" stroke-width="42" stroke-linecap="round"/>
+  <path d="M 268 36 L 380 104 L 268 150 L 292 94 Z" fill="url(#blue)"/>
+
+  <!-- bottom arc, sweeping right-to-left, arrowhead on the left -->
+  <path d="M 420 286
+           A 172 172 0 0 1 216 424"
+        fill="none" stroke="url(#purple)" stroke-width="42" stroke-linecap="round"/>
+  <path d="M 244 476 L 132 408 L 244 362 L 220 418 Z" fill="url(#purple)"/>
+
+  <!-- curly braces -->
+  <g fill="none" stroke="#ffffff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 212 156
+             C 172 156 172 186 172 226
+             C 172 246 154 256 140 256
+             C 154 256 172 266 172 286
+             C 172 326 172 356 212 356"/>
+    <path d="M 300 156
+             C 340 156 340 186 340 226
+             C 340 246 358 256 372 256
+             C 358 256 340 266 340 286
+             C 340 326 340 356 300 356"/>
+  </g>
+</svg>

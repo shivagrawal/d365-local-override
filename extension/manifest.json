@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PatchPilot",
-  "version": "1.2.8",
+  "version": "2.0.0",
   "description": "Serve a local PCF bundle or Model-Driven JavaScript/HTML web resource into a running Dynamics 365 session, without redeploying.",
   "permissions": ["activeTab", "storage", "tabs", "nativeMessaging"],
   "host_permissions": ["http://127.0.0.1:32145/*", "https://*.dynamics.com/*"],

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#152a5e"/>
+      <stop offset="1" stop-color="#0a1229"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="512" height="512" rx="116" ry="116" fill="url(#bg)"/>
+
+  <!-- Simplified for small sizes: heavier strokes, blunt arrowheads, wider
+       gap between the braces. The full-detail icon becomes unreadable mush
+       below ~48px, so small sizes get a deliberately coarser variant. -->
+  <path d="M 84 250 A 172 172 0 0 1 286 84"
+        fill="none" stroke="#3ab4ef" stroke-width="58" stroke-linecap="round"/>
+  <path d="M 256 30 L 392 106 L 250 168 Z" fill="#3ab4ef"/>
+
+  <path d="M 428 262 A 172 172 0 0 1 226 428"
+        fill="none" stroke="#8250f0" stroke-width="58" stroke-linecap="round"/>
+  <path d="M 256 482 L 120 406 L 262 344 Z" fill="#8250f0"/>
+
+  <g fill="none" stroke="#ffffff" stroke-width="52" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 214 150
+             C 168 150 168 190 168 226
+             C 168 248 148 256 132 256
+             C 148 256 168 264 168 286
+             C 168 322 168 362 214 362"/>
+    <path d="M 298 150
+             C 344 150 344 190 344 226
+             C 344 248 364 256 380 256
+             C 364 256 344 264 344 286
+             C 344 322 344 362 298 362"/>
+  </g>
+</svg>
