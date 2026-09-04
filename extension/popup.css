@@ -87,3 +87,7 @@ details .body{padding:9px 10px}
 .notice{padding:10px;border:1px solid var(--stroke);border-radius:8px;background:var(--panel-raised)}
 .notice-title{font-size:12px;font-weight:700;color:var(--text);margin-bottom:2px}
 .error{margin-top:9px;padding:8px 9px;border:1px solid var(--red-dim);border-radius:6px;background:#2a1214;color:#ff9c9f;font-size:11px}
+.watch-row{padding:8px 9px;margin-top:6px;border:1px solid var(--stroke);border-radius:6px;background:var(--panel-raised)}
+.watch-head{display:flex;align-items:center;gap:7px;margin-bottom:6px}
+.watch-name{font:11.5px var(--mono);color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.watch-row select{margin-bottom:2px}

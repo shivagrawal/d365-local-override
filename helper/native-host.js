@@ -7,14 +7,14 @@
 import { launch } from './main.js';
 import { pickPath } from './picker.js';
 import { detectWatchTarget } from './pcf-watch.js';
-import { PcfWatcher } from './pcf-watcher-process.js';
+import { PcfWatcherPool } from './pcf-watcher-pool.js';
 import { encodeMessage, createDecoder } from './native-protocol.js';
 
 console.log = (...args) => console.error(...args);
 
 let controller = null;
 let server = null;
-const watcher = new PcfWatcher();
+const watchers = new PcfWatcherPool();
 
 const send = message => process.stdout.write(encodeMessage(message));
 
@@ -39,11 +39,16 @@ async function handle(message) {
       }
       await controller.close();
       controller = null;
+      // A build watch exists to feed the overrides - once those are gone it
+      // has no purpose, and leaving webpack running invisibly is exactly the
+      // orphan problem this tool is supposed to avoid.
+      await watchers.stopAll();
       if (server) {
         await new Promise(resolve => server.close(resolve));
         server = null;
       }
       send({ type: 'status', stage: 'stopped' });
+      send({ type: 'watch-status', watches: watchers.snapshots() });
       return;
     }
 
@@ -84,8 +89,12 @@ async function handle(message) {
     if (message.type === 'watch-start') {
       const { projectRoot, scriptName } = message.options || {};
       try {
-        const result = watcher.start(projectRoot, scriptName);
-        send({ type: 'watch-status', ...result.snapshot, alreadyRunning: !result.started });
+        const result = watchers.start(projectRoot, scriptName);
+        send({
+          type: 'watch-status',
+          watches: watchers.snapshots(),
+          alreadyRunning: !result.started
+        });
       } catch (error) {
         send({ type: 'error', message: error.message });
       }
@@ -93,13 +102,16 @@ async function handle(message) {
     }
 
     if (message.type === 'watch-stop') {
-      await watcher.stop();
-      send({ type: 'watch-status', ...watcher.snapshot() });
+      const projectRoot = message.options?.projectRoot;
+      // No projectRoot means "stop everything" - used when disconnecting.
+      if (projectRoot) await watchers.stop(projectRoot);
+      else await watchers.stopAll();
+      send({ type: 'watch-status', watches: watchers.snapshots() });
       return;
     }
 
     if (message.type === 'watch-status') {
-      send({ type: 'watch-status', ...watcher.snapshot() });
+      send({ type: 'watch-status', watches: watchers.snapshots() });
       return;
     }
 
@@ -128,7 +140,7 @@ process.stdin.on('data', createDecoder((message, error) => {
 // closing). Stop the helper and any running PCF build watch cleanly rather
 // than leaving Chrome/CDP attached or an orphaned webpack process behind.
 process.stdin.on('end', async () => {
-  await watcher.stop();
+  await watchers.stopAll();
   if (controller) await controller.close().catch(() => {});
   if (server) await new Promise(resolve => server.close(resolve)).catch(() => {});
   process.exit(0);

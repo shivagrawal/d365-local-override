@@ -148,14 +148,20 @@ function activePcfBundlePath(){
   return (state?.rules||[]).find(r=>r.resourceType==='pcf')?.bundlePath||null;
 }
 
+/** Ask the host to detect the project for every active PCF override. */
+function detectAllPcfWatches(){
+  for(const rule of (state?.rules||[])){
+    if(rule.resourceType==='pcf')detectWatch(rule.bundlePath);
+  }
+}
+
 async function initialize(){
   try{
     state=await api('/status');
     $('offline').classList.add('hidden');$('online').classList.remove('hidden');
     await loadTabs();render();timer=setInterval(refreshStatus,1000);
     sendToNativeHost('watch-status').catch(()=>{});
-    const pcfPath=activePcfBundlePath();
-    if(pcfPath)detectWatch(pcfPath);
+    detectAllPcfWatches();
   }catch{$('offline').classList.remove('hidden');$('online').classList.add('hidden');}
 }
 async function refreshStatus(){
@@ -223,12 +229,19 @@ chrome.runtime.onMessage.addListener(message=>{
     showNativeError(message.message);
   }
   if(message.type==='watch-detected'){
-    watchState={...watchState,projectRoot:message.projectRoot,scripts:message.scripts||{},suggested:message.suggested};
+    if(message.projectRoot){
+      const key=message.projectRoot;
+      watchTargets[key]={projectRoot:key,scripts:message.scripts||{},suggested:message.suggested};
+    }
     renderWatch();
   }
   if(message.type==='watch-status'){
-    watchState={...watchState,running:Boolean(message.running),log:message.log||watchState.log};
-    if(message.projectRoot)watchState.projectRoot=message.projectRoot;
+    // The pool reports every tracked project; merge running-state into
+    // whatever detection info we already have per project.
+    liveWatches={};
+    for(const w of (message.watches||[])){
+      if(w.projectRoot)liveWatches[w.projectRoot]={running:w.running,log:w.log||'',scriptName:w.scriptName};
+    }
     renderWatch();
   }
 });
@@ -326,34 +339,74 @@ function stripAnsi(text){
   return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g,'');
 }
 
-let watchState={projectRoot:null,scripts:{},suggested:null,running:false,log:''};
+let watchTargets={};   // projectRoot -> { projectRoot, scripts, suggested }
+let liveWatches={};    // projectRoot -> { running, log, scriptName }
+
+/** Every distinct project root across all active PCF overrides. */
+function activePcfProjects(){
+  return [...new Set(Object.keys(watchTargets))];
+}
 
 function renderWatch(){
   // The section exists only when a PCF override is actually active - JS and
   // HTML web resources have no build step, so a build watch is meaningless
   // for them and shouldn't occupy screen space.
-  const hasPcf=Boolean(activePcfBundlePath());
-  const hasTarget=hasPcf&&Boolean(watchState.projectRoot);
-  $('watchSection').classList.toggle('hidden',!hasTarget);
-  if(!hasTarget)return;
+  const projects=activePcfBundlePath()?activePcfProjects():[];
+  $('watchSection').classList.toggle('hidden',!projects.length);
+  if(!projects.length)return;
 
-  $('startWatch').classList.toggle('hidden',watchState.running);
-  $('stopWatch').classList.toggle('hidden',!watchState.running);
+  const runningCount=projects.filter(p=>liveWatches[p]?.running).length;
+  $('watchStateLabel').textContent=runningCount?`● ${runningCount} running`:'○ Stopped';
+  $('watchStateLabel').style.color=runningCount?'var(--amber)':'var(--text-faint)';
 
-  $('watchStateLabel').textContent=watchState.running?'● Running':'○ Stopped';
-  $('watchStateLabel').style.color=watchState.running?'var(--amber)':'var(--text-faint)';
+  $('watchList').replaceChildren(...projects.map(projectRoot=>{
+    const target=watchTargets[projectRoot]||{scripts:{},suggested:null};
+    const live=liveWatches[projectRoot]||{running:false,log:''};
 
-  $('watchTarget').textContent=watchState.projectRoot;
-  const names=Object.keys(watchState.scripts);
-  if(names.length){
-    $('watchScript').replaceChildren(...names.map(n=>option(n,n)));
-    $('watchScript').value=watchState.suggested&&names.includes(watchState.suggested)?watchState.suggested:names[0];
-  }
+    const row=document.createElement('div');
+    row.className='watch-row';
 
-  const el=$('watchLog');
-  const wasAtBottom=el.scrollTop+el.clientHeight>=el.scrollHeight-4;
-  el.textContent=watchState.log?stripAnsi(watchState.log).slice(-4000):'Not running';
-  if(wasAtBottom)el.scrollTop=el.scrollHeight;
+    const head=document.createElement('div');
+    head.className='watch-head';
+    const dot=document.createElement('span');
+    dot.className='dot'+(live.running?' on':'');
+    const name=document.createElement('span');
+    name.className='watch-name';
+    name.textContent=projectRoot.split(/[\\/]/).filter(Boolean).pop()||projectRoot;
+    name.title=projectRoot;
+    head.append(dot,name);
+
+    const scriptSelect=document.createElement('select');
+    const names=Object.keys(target.scripts);
+    scriptSelect.replaceChildren(...names.map(n=>option(n,n)));
+    if(target.suggested&&names.includes(target.suggested))scriptSelect.value=target.suggested;
+    scriptSelect.disabled=live.running;
+
+    const button=document.createElement('button');
+    button.className='secondary-button full-width';
+    button.textContent=live.running?'Stop build watch':'Start build watch';
+    button.onclick=async()=>{
+      button.disabled=true;
+      try{
+        const response=live.running
+          ? await sendToNativeHost('watch-stop',{projectRoot})
+          : await sendToNativeHost('watch-start',{projectRoot,scriptName:scriptSelect.value});
+        if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
+      }catch(e){showError(e.message)}
+      finally{button.disabled=false}
+    };
+
+    const logBox=document.createElement('details');
+    const summary=document.createElement('summary');
+    summary.textContent='Build watch log';
+    const logView=document.createElement('div');
+    logView.className='log-panel';
+    logView.textContent=live.log?stripAnsi(live.log).slice(-4000):'Not running';
+    logBox.append(summary,logView);
+
+    row.append(head,scriptSelect,button,logBox);
+    return row;
+  }));
 }
 
 async function detectWatch(bundlePath){
@@ -361,24 +414,6 @@ async function detectWatch(bundlePath){
   try{ await sendToNativeHost('watch-detect',{bundlePath}); }
   catch{ /* optional feature, fail quietly */ }
 }
-
-$('startWatch').onclick=async()=>{
-  const scriptName=$('watchScript').value;
-  if(!watchState.projectRoot||!scriptName)return;
-  $('startWatch').disabled=true;
-  try{
-    const response=await sendToNativeHost('watch-start',{projectRoot:watchState.projectRoot,scriptName});
-    if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
-  }catch(e){showError(e.message)}
-  finally{$('startWatch').disabled=false}
-};
-
-$('stopWatch').onclick=async()=>{
-  try{
-    const response=await sendToNativeHost('watch-stop');
-    if(!response?.ok)throw new Error(response?.error||'Could not reach the native host.');
-  }catch(e){showError(e.message)}
-};
 
 let allCandidates=[];
 
@@ -431,8 +466,7 @@ async function addOverride(resourceUrl){
     render();
     // Detect the build watch target only now - when a PCF override actually
     // becomes active - rather than when a folder was merely browsed.
-    const pcfPath=activePcfBundlePath();
-    if(pcfPath)detectWatch(pcfPath);
+    detectAllPcfWatches();
   }catch(e){
     console.error('[PatchPilot] addOverride failed',{tabId:$('tab').value,bundlePath,resourceUrl,error:e});
     showError(e.message);
