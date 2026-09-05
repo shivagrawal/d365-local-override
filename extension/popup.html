@@ -23,7 +23,7 @@
     <summary>First-time setup / fallback</summary>
     <div class="body">
       <p class="hint">"Connect" needs a one-time native messaging registration. Run once from the repo root, using the ID shown on this extension's card at <code>chrome://extensions</code>.</p>
-      <div class="command-row"><code>install-native-host.cmd &lt;extension-id&gt;</code></div>
+      <div class="command-row"><code>install-native-host.cmd &lt;chrome-id&gt; &lt;edge-id&gt;</code></div>
       <p class="hint">Or start it from a terminal directly:</p>
       <div class="command-row"><code id="launchCommand">d365-local-override launch</code><button id="copy" class="secondary-button">Copy</button></div>
     </div>
@@ -89,7 +89,7 @@
 <details class="guide">
   <summary>How to run — step by step</summary>
   <ol>
-    <li><strong>One-time helper setup</strong><p>Run <code>install-native-host.cmd &lt;extension-id&gt;</code> once from this repo (ID is on this extension's card at <code>chrome://extensions</code>). After this, "Connect" needs no terminal.</p></li>
+    <li><strong>One-time helper setup</strong><p>Run <code>install-native-host.cmd &lt;chrome-id&gt; &lt;edge-id&gt;</code> once from this repo. Chrome and Edge give the same unpacked extension <em>different</em> ids &mdash; pass both if you use both. Each id is on the extension's card at <code>chrome://extensions</code> / <code>edge://extensions</code>. After this, "Connect" needs no terminal.</p></li>
     <li><strong>Open Dynamics, click this extension, click "Connect"</strong></li>
     <li><strong>Add an override</strong><p>Click "+ Add override", browse to your file, scan for the matching Dynamics resource, then click "Add this override". Repeat to override more than one file at once.</p></li>
     <li><strong>Build watch</strong><p>Appears automatically when a PCF override is active, pointed at that control's own project. Click "Start build watch" to run its npm watch script here instead of a separate terminal.</p></li>

@@ -1,7 +1,7 @@
 {
   "name": "com.pcf_local_override.native_host",
-  "description": "Starts and stops the PCF Local Override helper process.",
+  "description": "Starts and stops the D365 Local Override helper process.",
   "path": "__NATIVE_HOST_CMD_PATH__",
   "type": "stdio",
-  "allowed_origins": ["chrome-extension://__EXTENSION_ID__/"]
+  "allowed_origins": __ALLOWED_ORIGINS__
 }

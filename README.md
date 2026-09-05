@@ -7,8 +7,14 @@ Local Dynamics development tool for PCF bundles and Model-Driven App JavaScript 
 Requires Node.js 22 or later.
 
 ```bat
-install-native-host.cmd <extension-id>
+install-native-host.cmd <chrome-extension-id> <edge-extension-id>
 ```
+
+Chrome and Edge derive different ids for the same unpacked extension, and each
+browser reads only its own registry key. Pass every id you want to allow; the
+script registers for both browsers in one run. Only the native features
+(Connect, Disconnect, Browse, build watch) need this - everything else talks to
+the helper over HTTP and works from any browser once it is running.
 
 Manual installation:
 
